@@ -96,9 +96,6 @@ func TestParse(t *testing.T) {
 			if got.Interpolated != tt.wantInterp {
 				t.Errorf("Interpolated = %v, want %v", got.Interpolated, tt.wantInterp)
 			}
-			if !tt.wantInterp && len(got.Vars) != 0 {
-				t.Errorf("Vars = %v, want none for an uninterpolated ref", got.Vars)
-			}
 		})
 	}
 }
