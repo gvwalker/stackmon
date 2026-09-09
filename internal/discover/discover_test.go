@@ -110,3 +110,22 @@ func TestScanIgnoresMissingRoot(t *testing.T) {
 		t.Errorf("Scan = %+v, want empty", got)
 	}
 }
+func TestScanNormalisesEnrolledDirWithTrailingSeparator(t *testing.T) {
+	root := tree(t, "stack/compose.yaml")
+	stackDir := filepath.Join(root, "stack")
+	// Enrol with a trailing separator to test normalisation
+	inv := inventory.Inventory{Stacks: []inventory.Stack{
+		{Name: "stack", Dir: stackDir + string(filepath.Separator), File: "compose.yaml"},
+	}}
+
+	got, err := Scan([]string{root}, inv)
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d candidates, want 1: %+v", len(got), got)
+	}
+	if !got[0].Enrolled {
+		t.Error("stack with trailing separator in Stack.Dir should be marked enrolled")
+	}
+}

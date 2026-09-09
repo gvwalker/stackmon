@@ -48,7 +48,7 @@ func FindComposeFile(dir string) (string, bool) {
 func Scan(roots []string, inv inventory.Inventory) ([]Candidate, error) {
 	enrolled := make(map[string]bool, len(inv.Stacks))
 	for _, s := range inv.Stacks {
-		enrolled[s.Dir] = true
+		enrolled[filepath.Clean(s.Dir)] = true
 	}
 
 	var out []Candidate
