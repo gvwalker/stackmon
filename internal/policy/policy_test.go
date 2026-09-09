@@ -94,3 +94,43 @@ func TestEvaluateVariantTagsCompareOnCore(t *testing.T) {
 		t.Errorf("Kind = %v, want major", got.Kind)
 	}
 }
+
+// REPRODUCED (Important finding): a config glob over linuxserver-style tags
+// that share a three-component semver core once Version truncates the
+// fourth component must rank the newest build first in Ordered, not the
+// oldest -- Ordered is documented newest-first and shown to the user by
+// `show`.
+//
+// Candidate remains empty here even after this fix: Constraint.Version's
+// three-component truncation makes the current tag and the newest matching
+// tag compare as an exact semver tie (both "4.0.19"), and Candidate is only
+// offered when the newest strictly exceeds the current version. Widening
+// Version's precision to disambiguate ties like this is a separate,
+// larger change (semver.Version has no fourth component to compare against)
+// that the ruling for this finding did not ask for; this test documents
+// the current, narrower behaviour rather than asserting the wider fix.
+func TestEvaluateOrdersFourComponentTagsNewestFirstOnTie(t *testing.T) {
+	tags := []string{"4.0.19.2979-ls323", "4.0.19.2980-ls324"}
+	got := Evaluate("4.0.19.2979-ls323", tags, Parse("4.0.*"))
+
+	want := []string{"4.0.19.2980-ls324", "4.0.19.2979-ls323"}
+	if len(got.Ordered) != len(want) || got.Ordered[0] != want[0] || got.Ordered[1] != want[1] {
+		t.Fatalf("Ordered = %v, want %v (newest build first)", got.Ordered, want)
+	}
+}
+
+// A glob matching a tag with no numeric run at all must still appear in
+// Ordered, ranked lexicographically, rather than being silently discarded.
+func TestEvaluateKeepsVersionlessGlobMatchesOrderedLexicographically(t *testing.T) {
+	got := Evaluate("1.0.0", []string{"1.0.0", "1.1.0", "edge", "canary"}, Parse("*"))
+
+	want := []string{"1.1.0", "1.0.0", "edge", "canary"}
+	if len(got.Ordered) != len(want) {
+		t.Fatalf("Ordered = %v, want %v", got.Ordered, want)
+	}
+	for i := range want {
+		if got.Ordered[i] != want[i] {
+			t.Fatalf("Ordered = %v, want %v", got.Ordered, want)
+		}
+	}
+}

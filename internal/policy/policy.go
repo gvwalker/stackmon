@@ -53,12 +53,19 @@ func Evaluate(current string, tags []string, c Constraint) Result {
 	}
 
 	var matches []candidate
+	// unversioned holds matching tags for which Version finds no numeric
+	// run at all -- rare for a config glob, since the loose numeric-run
+	// search matches almost anything with a digit, but a real construct
+	// nonetheless. The spec's stated fallback orders these
+	// lexicographically rather than discarding them.
+	var unversioned []string
 	for _, tag := range tags {
 		if !c.Matches(tag) {
 			continue
 		}
 		v, ok := c.Version(tag)
 		if !ok {
+			unversioned = append(unversioned, tag)
 			continue
 		}
 		matches = append(matches, candidate{tag: tag, ver: v})
@@ -68,13 +75,19 @@ func Evaluate(current string, tags []string, c Constraint) Result {
 		if cmp := matches[i].ver.Compare(matches[j].ver); cmp != 0 {
 			return cmp > 0 // newest first
 		}
-		return matches[i].tag < matches[j].tag
+		// Equal semver cores tie when Version truncates precision (a
+		// linuxserver-style four-component tag loses its build number to
+		// a three-component core): the lexicographically greater tag is
+		// the newer build, so break ties descending, not ascending.
+		return matches[i].tag > matches[j].tag
 	})
+	sort.Sort(sort.Reverse(sort.StringSlice(unversioned)))
 
-	res := Result{Ordered: make([]string, 0, len(matches))}
+	res := Result{Ordered: make([]string, 0, len(matches)+len(unversioned))}
 	for _, m := range matches {
 		res.Ordered = append(res.Ordered, m.tag)
 	}
+	res.Ordered = append(res.Ordered, unversioned...)
 
 	currentVer, ok := c.Version(current)
 	if !ok || len(matches) == 0 {
