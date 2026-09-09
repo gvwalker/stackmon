@@ -179,9 +179,15 @@ against. Reverse-mapping digest to tag by listing and resolving every tag is
 prohibitively expensive.
 
 Instead, stackmon reads `org.opencontainers.image.version` from the image
-config blob — a request already being made. Traefik and cloudflared both set
-it. Where the label is absent, the row reports `pinned, version unknown`
-rather than guessing.
+config blob — a request already being made. Verified 2026-09-09 against the
+live registries: `traefik@sha256:9c3b…` reports `v3.7.10`, and
+`lscr.io/linuxserver/sonarr:latest` reports `4.0.19.2979-ls323`, so even
+floating linuxserver tags gain a human-readable version. `cloudflared` and the
+Docker Official Images (`postgres:18-alpine`) set no version label at all, so
+the absent-label path is common rather than exceptional: those rows report
+`pinned, version unknown` rather than guessing. Where a tag is present it
+supplies the version regardless, so only digest-only pins depend on this
+label.
 
 ### Explaining a digest change
 
