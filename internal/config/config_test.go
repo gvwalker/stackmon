@@ -86,3 +86,9 @@ func TestLoadRejectsNegativeConcurrency(t *testing.T) {
 		t.Fatal("Load with negative concurrency = nil error, want error")
 	}
 }
+
+func TestLoadRejectsZeroConcurrency(t *testing.T) {
+	if _, err := Load(writeTemp(t, "concurrency = 0")); err == nil {
+		t.Fatal("Load with explicit zero concurrency = nil error, want error")
+	}
+}

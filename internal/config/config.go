@@ -31,8 +31,18 @@ type StackConfig struct {
 
 // Config is the parsed contents of config.toml.
 type Config struct {
+	Roots       []string
+	Concurrency int
+	Stacks      map[string]StackConfig
+}
+
+// rawConfig is the direct TOML-unmarshalling target. Concurrency is a
+// pointer here so an absent key (nil) can be distinguished from an
+// explicitly-set value of 0, which the exported Config.Concurrency (a plain
+// int) cannot represent.
+type rawConfig struct {
 	Roots       []string               `toml:"roots"`
-	Concurrency int                    `toml:"concurrency"`
+	Concurrency *int                   `toml:"concurrency"`
 	Stacks      map[string]StackConfig `toml:"stacks"`
 }
 
@@ -58,28 +68,30 @@ func DefaultPath() (string, error) {
 // Load reads config.toml. A missing file yields a usable zero config, because
 // stacks may be enrolled by path without any roots configured.
 func Load(path string) (Config, error) {
-	c := Config{Concurrency: DefaultConcurrency}
-
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return c, nil
+		return Config{Concurrency: DefaultConcurrency}, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("config: reading %s: %w", path, err)
 	}
 
-	// Zero Concurrency distinguishes "absent" from "explicitly set".
-	c.Concurrency = 0
-	if err := toml.Unmarshal(data, &c); err != nil {
+	var raw rawConfig
+	if err := toml.Unmarshal(data, &raw); err != nil {
 		return Config{}, fmt.Errorf("config: parsing %s: %w", path, err)
 	}
 
-	switch {
-	case c.Concurrency == 0:
-		c.Concurrency = DefaultConcurrency
-	case c.Concurrency < 0:
-		return Config{}, fmt.Errorf("config: concurrency must be positive, got %d", c.Concurrency)
+	concurrency := DefaultConcurrency
+	if raw.Concurrency != nil {
+		if *raw.Concurrency < 1 {
+			return Config{}, fmt.Errorf("config: concurrency must be positive, got %d", *raw.Concurrency)
+		}
+		concurrency = *raw.Concurrency
 	}
 
-	return c, nil
+	return Config{
+		Roots:       raw.Roots,
+		Concurrency: concurrency,
+		Stacks:      raw.Stacks,
+	}, nil
 }
