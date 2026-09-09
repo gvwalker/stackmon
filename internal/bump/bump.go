@@ -78,6 +78,15 @@ func Plan(st compose.Stack, svc compose.Service, img report.Image) (Change, erro
 		return Change{}, fmt.Errorf("bump: %s/%s is already at %s", st.Name, svc.Name, ref.Raw)
 	}
 
+	// This is the only code that writes to a live production compose
+	// file; it must be impossible to write a reference the tool cannot
+	// read back. The digest values above come straight from exported,
+	// unvalidated string fields, so confirm the rebuilt reference actually
+	// parses before returning it.
+	if _, err := imageref.Parse(next, next); err != nil {
+		return Change{}, fmt.Errorf("bump: %s/%s: refusing to write an unparseable reference %q: %w", st.Name, svc.Name, next, err)
+	}
+
 	return Change{
 		Path:   filepath.Join(st.Dir, st.File),
 		Offset: svc.Offset,

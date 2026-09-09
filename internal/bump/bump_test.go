@@ -11,14 +11,18 @@ import (
 	"github.com/gvwalker/stackmon/internal/report"
 )
 
-// digestA is a syntactically valid (64 hex char) fake sha256 digest.
-// go-containerregistry's name.ParseReference validates digest length and
-// rejects short placeholders like "sha256:aaaa", so any fixture reference
-// that flows through imageref.Parse needs a full-length digest. Other short
-// "sha256:bbbb"-style values below are only ever compared or embedded
-// verbatim (report.Image.RegistryDigest, the simulated concurrent edit) and
-// are never parsed, so they can stay short.
+// digestA, digestB, digestC are syntactically valid (64 hex char) fake
+// sha256 digests. go-containerregistry's name.ParseReference validates
+// digest length and rejects short placeholders like "sha256:aaaa", and
+// Plan itself now validates the rewritten reference before returning it, so
+// every fixture reference that ends up in a Change.New needs a full-length
+// digest.
 const digestA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+var digestB = strings.Repeat("b", 64)
+var digestC = strings.Repeat("c", 64)
+var sha256B = "sha256:" + digestB
+var sha256C = "sha256:" + digestC
 
 const traefikFile = `services:
   traefik:
@@ -54,14 +58,14 @@ func serviceAt(t *testing.T, body, raw string) (compose.Stack, compose.Service, 
 
 func TestApplyReplacesDigestAndPreservesComments(t *testing.T) {
 	st, svc, path := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	img := report.Image{RegistryDigest: "sha256:bbbb"}
+	img := report.Image{RegistryDigest: sha256B}
 
 	c, err := Plan(st, svc, img)
 	if err != nil {
 		t.Fatalf("Plan error: %v", err)
 	}
-	if c.New != "traefik@sha256:bbbb" {
-		t.Fatalf("New = %q, want traefik@sha256:bbbb", c.New)
+	if want := "traefik@" + sha256B; c.New != want {
+		t.Fatalf("New = %q, want %q", c.New, want)
 	}
 	if err := Apply(c); err != nil {
 		t.Fatalf("Apply error: %v", err)
@@ -72,7 +76,7 @@ func TestApplyReplacesDigestAndPreservesComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := string(got)
-	if !strings.Contains(out, "image: traefik@sha256:bbbb") {
+	if !strings.Contains(out, "image: traefik@"+sha256B) {
 		t.Errorf("digest not replaced:\n%s", out)
 	}
 	if !strings.Contains(out, "# Pinned by digest deliberately") {
@@ -86,13 +90,13 @@ func TestApplyReplacesDigestAndPreservesComments(t *testing.T) {
 func TestPlanAdvancesTagAndDigestTogether(t *testing.T) {
 	body := "services:\n  a:\n    image: adguard/adguardhome:v0.107.79@sha256:" + digestA + "\n"
 	st, svc, _ := serviceAt(t, body, "adguard/adguardhome:v0.107.79@sha256:"+digestA)
-	img := report.Image{Candidate: "v0.107.80", CandidateDigest: "sha256:cccc"}
+	img := report.Image{Candidate: "v0.107.80", CandidateDigest: sha256C}
 
 	c, err := Plan(st, svc, img)
 	if err != nil {
 		t.Fatalf("Plan error: %v", err)
 	}
-	if want := "adguard/adguardhome:v0.107.80@sha256:cccc"; c.New != want {
+	if want := "adguard/adguardhome:v0.107.80@" + sha256C; c.New != want {
 		t.Errorf("New = %q, want %q", c.New, want)
 	}
 }
@@ -116,7 +120,7 @@ func TestPlanRefusesFloatingReference(t *testing.T) {
 	const body = "services:\n  a:\n    image: lscr.io/linuxserver/sonarr:latest\n"
 	st, svc, _ := serviceAt(t, body, "lscr.io/linuxserver/sonarr:latest")
 
-	_, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:dddd"})
+	_, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err == nil {
 		t.Fatal("Plan on a floating tag = nil error, want refusal")
 	}
@@ -156,20 +160,19 @@ func TestPlanRefusesWhenNothingToChange(t *testing.T) {
 	}
 }
 
-// RULING O: a digest-only pin's registry digest describes only the
-// declared reference, never a different candidate version, but its
-// CandidateDigest is resolved independently and is exactly what a
-// digest-only pin needs to advance -- this is a legitimate bump, not a
-// refusal.
+// A digest-only pin's registry digest describes only the declared
+// reference, never a different candidate version, but its CandidateDigest
+// is resolved independently and is exactly what a digest-only pin needs to
+// advance -- this is a legitimate bump, not a refusal.
 func TestPlanAdvancesDigestOnlyPinToCandidateDigest(t *testing.T) {
 	body := "services:\n  a:\n    image: traefik@sha256:" + digestA + "\n"
 	st, svc, _ := serviceAt(t, body, "traefik@sha256:"+digestA)
 
-	c, err := Plan(st, svc, report.Image{Version: "v3.0.0", Candidate: "v3.1.0", CandidateDigest: "sha256:cccc"})
+	c, err := Plan(st, svc, report.Image{Version: "v3.0.0", Candidate: "v3.1.0", CandidateDigest: sha256C})
 	if err != nil {
 		t.Fatalf("Plan error: %v", err)
 	}
-	if want := "traefik@sha256:cccc"; c.New != want {
+	if want := "traefik@" + sha256C; c.New != want {
 		t.Errorf("New = %q, want %q", c.New, want)
 	}
 }
@@ -214,7 +217,7 @@ func TestPlanRefusesTagDigestBumpWhenCandidateDigestUnknown(t *testing.T) {
 // The guard is what makes bump safe to run after a check from minutes ago.
 func TestApplyAbortsWhenFileChangedSinceCheck(t *testing.T) {
 	st, svc, path := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +254,7 @@ func TestApplyPreservesFileMode(t *testing.T) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +272,7 @@ func TestApplyPreservesFileMode(t *testing.T) {
 
 func TestDiffShowsBothLines(t *testing.T) {
 	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,11 +280,11 @@ func TestDiffShowsBothLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Diff error: %v", err)
 	}
-	// FINDING 4: "-" and "+" alone are satisfied by the "---"/"+++" headers
-	// even if the body lines were garbage, so assert the actual old and new
-	// content lines instead.
+	// "-" and "+" alone are satisfied by the "---"/"+++" headers even if
+	// the body lines were garbage, so assert the actual old and new content
+	// lines instead.
 	wantOld := "-    image: traefik@sha256:" + digestA
-	wantNew := "+    image: traefik@sha256:bbbb"
+	wantNew := "+    image: traefik@" + sha256B
 	if !strings.Contains(d, wantOld) {
 		t.Errorf("diff missing old content line %q:\n%s", wantOld, d)
 	}
@@ -290,25 +293,25 @@ func TestDiffShowsBothLines(t *testing.T) {
 	}
 }
 
-// RULING O supersedes Ruling E: RegistryDigest describes only the declared
-// reference, never a different candidate version. A tag+digest bump that
-// reused RegistryDigest for the new digest would silently pair the
-// advancing tag with the *previous* version's digest -- a syntactically
-// valid, factually wrong pin. This proves the candidate's own digest wins.
+// RegistryDigest describes only the declared reference, never a different
+// candidate version. A tag+digest bump that reused RegistryDigest for the
+// new digest would silently pair the advancing tag with the *previous*
+// version's digest -- a syntactically valid, factually wrong pin. This
+// proves the candidate's own digest wins.
 func TestPlanTagDigestBumpUsesCandidateDigestNotDeclaredDigest(t *testing.T) {
 	body := "services:\n  a:\n    image: adguard/adguardhome:v0.107.79@sha256:" + digestA + "\n"
 	st, svc, _ := serviceAt(t, body, "adguard/adguardhome:v0.107.79@sha256:"+digestA)
 	img := report.Image{
 		Candidate:       "v0.107.80",
 		RegistryDigest:  "sha256:" + digestA, // the declared v0.107.79's own digest
-		CandidateDigest: "sha256:cccc",       // v0.107.80's digest -- different
+		CandidateDigest: sha256C,             // v0.107.80's digest -- different
 	}
 
 	c, err := Plan(st, svc, img)
 	if err != nil {
 		t.Fatalf("Plan error: %v", err)
 	}
-	if want := "adguard/adguardhome:v0.107.80@sha256:cccc"; c.New != want {
+	if want := "adguard/adguardhome:v0.107.80@" + sha256C; c.New != want {
 		t.Errorf("New = %q, want %q (must use CandidateDigest, not RegistryDigest)", c.New, want)
 	}
 	if strings.Contains(c.New, digestA) {
@@ -316,14 +319,14 @@ func TestPlanTagDigestBumpUsesCandidateDigestNotDeclaredDigest(t *testing.T) {
 	}
 }
 
-// FINDING 2: Change's fields are exported and the type is explicitly
-// designed to survive between a check and a later bump, so a hostile or
-// stale value (here an inverted range, Offset 5 paired with Length -3) is
-// in scope. Apply must reject it cleanly rather than let
+// Change's fields are exported and the type is explicitly designed to
+// survive between a check and a later bump, so a hostile or stale value
+// (here an inverted range, Offset 5 paired with Length -3) is in scope.
+// Apply must reject it cleanly rather than let
 // data[c.Offset:c.Offset+c.Length] panic with "slice bounds out of range".
 func TestApplyRejectsNonPositiveLength(t *testing.T) {
 	st, svc, path := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +350,7 @@ func TestApplyRejectsNonPositiveLength(t *testing.T) {
 // hand-built or corrupted Change and must be refused the same way.
 func TestApplyRejectsZeroLength(t *testing.T) {
 	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +365,7 @@ func TestApplyRejectsZeroLength(t *testing.T) {
 // with a negative Offset panics immediately, before any length check runs.
 func TestDiffRejectsNegativeOffset(t *testing.T) {
 	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +378,7 @@ func TestDiffRejectsNegativeOffset(t *testing.T) {
 
 func TestDiffRejectsNonPositiveLength(t *testing.T) {
 	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,16 +389,15 @@ func TestDiffRejectsNonPositiveLength(t *testing.T) {
 	}
 }
 
-// FINDING 3: a dry-run that lies about the pending change is worse than no
-// dry-run. After a concurrent edit, Diff must refuse exactly like Apply
-// does, rather than rendering a preview against text that no longer
-// matches Old. The edit here is deliberately the same length as the
-// original digest so the file's total size is unchanged: only a genuine
-// content comparison (not merely Offset+Length exceeding len(data)) can
-// catch it.
+// A dry-run that lies about the pending change is worse than no dry-run.
+// After a concurrent edit, Diff must refuse exactly like Apply does, rather
+// than rendering a preview against text that no longer matches Old. The
+// edit here is deliberately the same length as the original digest so the
+// file's total size is unchanged: only a genuine content comparison (not
+// merely Offset+Length exceeding len(data)) can catch it.
 func TestDiffAbortsWhenFileChangedSinceCheck(t *testing.T) {
 	st, svc, path := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
-	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	c, err := Plan(st, svc, report.Image{RegistryDigest: sha256B})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,5 +413,19 @@ func TestDiffAbortsWhenFileChangedSinceCheck(t *testing.T) {
 
 	if _, err := Diff(c); err == nil {
 		t.Fatal("Diff after a same-length concurrent edit = nil error, want refusal")
+	}
+}
+
+// This is the only code that writes to a live production compose file; it
+// must be impossible to write a reference the tool cannot read back.
+// RegistryDigest comes straight from an exported, unvalidated string field,
+// so a syntactically invalid digest must be refused by Plan rather than
+// written.
+func TestPlanRefusesUnparseableRewrittenReference(t *testing.T) {
+	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
+
+	_, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:not-a-valid-digest"})
+	if err == nil {
+		t.Fatal("Plan with an invalid digest = nil error, want refusal")
 	}
 }
