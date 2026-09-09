@@ -276,8 +276,13 @@ func TestBuildRetainsAllApplicableStatuses(t *testing.T) {
 	const running = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const ref = "ghcr.io/acme/app:1.0.0@" + declared
 	reg := &fakeRegistry{
-		images: map[string]registry.Image{ref: {Digest: declared}},
-		tags:   map[string][]string{"ghcr.io/acme/app": {"1.0.0", "1.1.0"}},
+		images: map[string]registry.Image{
+			ref: {Digest: declared},
+			// The bare tag, checked separately for a ShapeTagDigest ref;
+			// its inspect must succeed or the row degrades to unknown.
+			"ghcr.io/acme/app:1.0.0": {Digest: declared},
+		},
+		tags: map[string][]string{"ghcr.io/acme/app": {"1.0.0", "1.1.0"}},
 	}
 	docker := fakeDockerProber{
 		available: true,
@@ -520,5 +525,38 @@ func TestBuildRunningContainerWithNoRepoDigestIsNotReportedAsNotRunning(t *testi
 	}
 	if !got.Running {
 		t.Error("Running = false, want true: the container index lookup hit")
+	}
+}
+
+// A ShapeTagDigest reference's tag-current inspect (checking what the bare
+// tag currently resolves to) discarded its error entirely. For a trackable
+// tag this was usually masked because Tags also failed and set p.err, but
+// an untrackable tag -- e.g. "latest" -- never calls Tags at all, so a
+// failed tag-current inspect left hasRegistryImage false, RegistryDigest
+// fell back to the declared digest, digest-drift could never fire, and the
+// row read "current" with an empty Err: a check that did not run, reported
+// as authoritative.
+func TestBuildTagCurrentInspectFailureBecomesUnknownRow(t *testing.T) {
+	const declaredDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const pinnedRef = "ghcr.io/acme/app:latest@" + declaredDigest
+
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{
+			pinnedRef: {Digest: declaredDigest},
+			// No entry for "ghcr.io/acme/app:latest": the bare-tag
+			// inspect fails.
+		},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "acme", "app", pinnedRef)},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Status != StatusUnknown {
+		t.Fatalf("Status = %q, want unknown when the tag-current inspect fails", got.Status)
+	}
+	if got.Err == "" {
+		t.Error("Err is empty; a failed tag-current inspect must be reported, not silently reported as current")
 	}
 }

@@ -111,7 +111,14 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 			// a digest-only ref names no tag at all.
 			if p.err == nil && ref.Shape == imageref.ShapeTagDigest {
 				tagRef := ref.Registry + "/" + ref.Repository + ":" + ref.Tag
-				if img, err := opts.Registry.Inspect(gctx, tagRef); err == nil {
+				img, err := opts.Registry.Inspect(gctx, tagRef)
+				if err != nil {
+					// A failed tag-current inspect is a failed check, not a
+					// silent "current": without it, RegistryDigest falls
+					// back to the declared digest and digest-drift can
+					// never fire.
+					p.err = err
+				} else {
 					p.registryImage = img
 					p.hasRegistryImage = true
 				}
