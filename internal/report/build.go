@@ -223,6 +223,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 	}
 
 	if c, ok := running[st.Name+"/"+svc.Name]; ok {
+		img.Running = true
 		img.RunningDigests = c.RepoDigests
 	}
 

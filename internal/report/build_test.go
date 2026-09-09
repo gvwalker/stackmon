@@ -493,3 +493,32 @@ func TestBuildTreatsDeclaredDigestAsDeployedWhenItMatchesAnyRunningEntry(t *test
 			got.Status, declaredDigest, got.RunningDigests)
 	}
 }
+
+// A running container whose image has no RepoDigests entry -- built
+// locally, docker load'd, or a failed daemon lookup -- must not read as "no
+// running container": container presence and digest availability are
+// independent signals.
+func TestBuildRunningContainerWithNoRepoDigestIsNotReportedAsNotRunning(t *testing.T) {
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:a"}},
+		tags:   map[string][]string{"index.docker.io/library/redis": {"8.2"}},
+	}
+	docker := fakeDockerProber{
+		available: true,
+		containers: []local.Container{
+			{Project: "cache", Service: "redis"}, // no RepoDigests
+		},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "cache", "redis", "redis:8.2")},
+		Options{Registry: reg, Docker: docker, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Status == StatusNotRunning {
+		t.Errorf("Status = not-running, but a container was found for the service (its image just has no RepoDigests)")
+	}
+	if !got.Running {
+		t.Error("Running = false, want true: the container index lookup hit")
+	}
+}

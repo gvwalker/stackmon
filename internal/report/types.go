@@ -33,12 +33,19 @@ type Image struct {
 	// DeclaredDigest is the digest written in the compose file, empty for a
 	// tag-only reference.
 	DeclaredDigest string `json:"declared_digest,omitempty"`
+	// Running is true when a container was found for the service in the
+	// Docker container index, independent of whether that container's
+	// image has a resolvable repo digest. A running container with no
+	// RepoDigests entry (built locally, docker load'd, or a failed
+	// lookup) is still running: only DockerChecked && !Running means no
+	// container exists.
+	Running bool `json:"running"`
 	// RunningDigests is every repo digest Docker recorded for the running
 	// container's image. Docker can record more than one manifest digest
 	// for the same image (e.g. after a retag), so this is a set: a
 	// declared or registry digest matching any entry counts as deployed.
-	// Empty when no running container was found, or Docker had no
-	// RepoDigests entry for its image.
+	// May be empty even when Running is true, when the image has no
+	// RepoDigests entry.
 	RunningDigests []string `json:"running_digests,omitempty"`
 	// RegistryDigest is what the registry serves for the declared reference.
 	RegistryDigest string `json:"registry_digest,omitempty"`
@@ -133,7 +140,7 @@ func applicable(i Image) []Status {
 	if i.DeclaredDigest == "" && len(i.RunningDigests) > 0 && i.RegistryDigest != "" && !containsDigest(i.RunningDigests, i.RegistryDigest) {
 		out = append(out, StatusStaleDeployment)
 	}
-	if i.DockerChecked && len(i.RunningDigests) == 0 {
+	if i.DockerChecked && !i.Running {
 		out = append(out, StatusNotRunning)
 	}
 	if len(out) == 0 {
