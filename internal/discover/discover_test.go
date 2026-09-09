@@ -129,3 +129,21 @@ func TestScanNormalisesEnrolledDirWithTrailingSeparator(t *testing.T) {
 		t.Error("stack with trailing separator in Stack.Dir should be marked enrolled")
 	}
 }
+
+// A compose file sitting directly in a configured root must be a
+// candidate, since `enroll <path>` already accepts such a directory
+// happily: the two commands must agree on what a stack is.
+func TestScanFindsComposeFileDirectlyInRoot(t *testing.T) {
+	root := tree(t, "compose.yaml")
+
+	got, err := Scan([]string{root}, inventory.Inventory{})
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("found %d candidates, want 1: %+v", len(got), got)
+	}
+	if got[0].Dir != root {
+		t.Errorf("Dir = %q, want the root itself %q", got[0].Dir, root)
+	}
+}

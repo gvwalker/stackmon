@@ -68,7 +68,7 @@ func Scan(roots []string, inv inventory.Inventory) ([]Candidate, error) {
 				}
 				return nil
 			}
-			if !d.IsDir() || path == root {
+			if !d.IsDir() {
 				return nil
 			}
 			if strings.HasPrefix(d.Name(), ".") {
