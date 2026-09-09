@@ -8,6 +8,7 @@ require (
 	github.com/compose-spec/compose-go/v2 v2.15.0
 	github.com/google/go-containerregistry v0.22.1
 	github.com/google/go-github/v66 v66.0.0
+	golang.org/x/sync v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -27,7 +28,6 @@ require (
 	github.com/sirupsen/logrus v1.10.1 // indirect
 	github.com/xhit/go-str2duration/v2 v2.1.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.4 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 )

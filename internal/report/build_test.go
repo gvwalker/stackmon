@@ -1,0 +1,247 @@
+package report
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/gvwalker/stackmon/internal/compose"
+	"github.com/gvwalker/stackmon/internal/config"
+	"github.com/gvwalker/stackmon/internal/imageref"
+	"github.com/gvwalker/stackmon/internal/local"
+	"github.com/gvwalker/stackmon/internal/registry"
+)
+
+// fakeRegistry records how often each reference was inspected, which is how
+// deduplication is verified.
+type fakeRegistry struct {
+	mu       sync.Mutex
+	images   map[string]registry.Image
+	tags     map[string][]string
+	inspects map[string]int
+	err      error
+}
+
+func (f *fakeRegistry) Inspect(_ context.Context, ref string) (registry.Image, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.inspects == nil {
+		f.inspects = map[string]int{}
+	}
+	f.inspects[ref]++
+	if f.err != nil {
+		return registry.Image{}, f.err
+	}
+	img, ok := f.images[ref]
+	if !ok {
+		return registry.Image{}, errors.New("not found")
+	}
+	return img, nil
+}
+
+func (f *fakeRegistry) Tags(_ context.Context, repo string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tags[repo], nil
+}
+
+type fakeDockerProber struct {
+	containers []local.Container
+	available  bool
+}
+
+func (f fakeDockerProber) Containers(context.Context) ([]local.Container, error) {
+	return f.containers, nil
+}
+func (f fakeDockerProber) Available() bool { return f.available }
+
+func stack(t *testing.T, name, service, raw string) compose.Stack {
+	t.Helper()
+	ref, err := imageref.Parse(raw, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compose.Stack{
+		Name:     name,
+		Services: []compose.Service{{Name: service, Ref: ref}},
+	}
+}
+
+func TestBuildReportsUpdateAvailable(t *testing.T) {
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{
+			"ghcr.io/vectorize-io/hindsight:0.9.1": {Digest: "sha256:a"},
+		},
+		tags: map[string][]string{
+			"ghcr.io/vectorize-io/hindsight": {"0.9.1", "0.9.2", "1.0.0"},
+		},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "hindsight", "app", "ghcr.io/vectorize-io/hindsight:0.9.1")},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 2})
+
+	if len(r.Images) != 1 {
+		t.Fatalf("Images = %d, want 1", len(r.Images))
+	}
+	got := r.Images[0]
+	if got.Status != StatusUpdateAvailable {
+		t.Errorf("Status = %q, want update-available (err: %q)", got.Status, got.Err)
+	}
+	if got.Candidate != "1.0.0" {
+		t.Errorf("Candidate = %q, want 1.0.0", got.Candidate)
+	}
+}
+
+// A digest-only pin has no tag, so its version must come from the label.
+func TestBuildRecoversVersionFromLabelForDigestOnlyPin(t *testing.T) {
+	const ref = "traefik@sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac"
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{
+			ref: {
+				Digest: "sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac",
+				Labels: map[string]string{
+					registry.LabelVersion: "v3.7.10",
+					registry.LabelSource:  "https://github.com/traefik/traefik",
+				},
+			},
+		},
+		tags: map[string][]string{"index.docker.io/library/traefik": {"v3.7.10", "v3.8.0"}},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "traefik", "traefik", ref)},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Version != "v3.7.10" {
+		t.Errorf("Version = %q, want v3.7.10 from the label", got.Version)
+	}
+	if got.Candidate != "v3.8.0" {
+		t.Errorf("Candidate = %q, want v3.8.0", got.Candidate)
+	}
+	if got.NotesRepo != "traefik/traefik" {
+		t.Errorf("NotesRepo = %q, want traefik/traefik", got.NotesRepo)
+	}
+}
+
+func TestBuildDeduplicatesRepeatedReferences(t *testing.T) {
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{"pgvector/pgvector:pg15": {Digest: "sha256:a"}},
+	}
+
+	Build(context.Background(), []compose.Stack{
+		stack(t, "a", "db", "pgvector/pgvector:pg15"),
+		stack(t, "b", "db", "pgvector/pgvector:pg15"),
+	}, Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 4})
+
+	if n := reg.inspects["pgvector/pgvector:pg15"]; n != 1 {
+		t.Errorf("inspected the same reference %d times, want 1", n)
+	}
+}
+
+// An untrackable tag must not trigger a tag listing at all.
+func TestBuildSkipsTagListingForOpaqueTags(t *testing.T) {
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{"lscr.io/linuxserver/sonarr:latest": {Digest: "sha256:a"}},
+		tags:   map[string][]string{"lscr.io/linuxserver/sonarr": {"latest", "1.0.0"}},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "media", "sonarr", "lscr.io/linuxserver/sonarr:latest")},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 1})
+
+	if got := r.Images[0].Candidate; got != "" {
+		t.Errorf("Candidate = %q, want empty for an opaque tag", got)
+	}
+}
+
+func TestBuildRegistryFailureBecomesUnknownRowNotFatal(t *testing.T) {
+	reg := &fakeRegistry{err: errors.New("registry unreachable")}
+
+	r := Build(context.Background(), []compose.Stack{
+		stack(t, "a", "app", "redis:8.2"),
+	}, Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 1})
+
+	if len(r.Images) != 1 {
+		t.Fatalf("Images = %d, want 1: a failure must still produce a row", len(r.Images))
+	}
+	if r.Images[0].Status != StatusUnknown {
+		t.Errorf("Status = %q, want unknown", r.Images[0].Status)
+	}
+	if r.Images[0].Err == "" {
+		t.Error("Err is empty; the reason must be reported")
+	}
+}
+
+func TestBuildMatchesRunningContainerByComposeLabels(t *testing.T) {
+	reg := &fakeRegistry{images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:new"}}}
+	docker := fakeDockerProber{
+		available: true,
+		containers: []local.Container{
+			{Project: "cache", Service: "redis", ImageID: "sha256:old"},
+		},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "cache", "redis", "redis:8.2")},
+		Options{Registry: reg, Docker: docker, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.RunningDigest != "sha256:old" {
+		t.Errorf("RunningDigest = %q, want sha256:old", got.RunningDigest)
+	}
+	if got.Status != StatusStaleDeployment {
+		t.Errorf("Status = %q, want stale-deployment", got.Status)
+	}
+}
+
+func TestBuildOmitsRunningSignalWhenDockerUnavailable(t *testing.T) {
+	reg := &fakeRegistry{images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:a"}}}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "cache", "redis", "redis:8.2")},
+		Options{Registry: reg, Docker: fakeDockerProber{available: false}, Concurrency: 1})
+
+	if r.DockerAvailable {
+		t.Error("DockerAvailable = true, want false")
+	}
+	if r.Images[0].Status == StatusNotRunning {
+		t.Error("Status = not-running, but Docker was never checked")
+	}
+}
+
+func TestBuildAppliesConfiguredConstraintOverride(t *testing.T) {
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{"pgvector/pgvector:pg15": {Digest: "sha256:a"}},
+		tags:   map[string][]string{"index.docker.io/pgvector/pgvector": {"pg15", "pg18", "pg18.1"}},
+	}
+	cfg := config.Config{Stacks: map[string]config.StackConfig{
+		"db": {Images: map[string]config.ImageConfig{
+			"pgvector/pgvector": {Constraint: "pg18*"},
+		}},
+	}}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "db", "postgres", "pgvector/pgvector:pg15")},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Config: cfg, Concurrency: 1})
+
+	if got := r.Images[0].Candidate; got != "pg18.1" {
+		t.Errorf("Candidate = %q, want pg18.1 from the configured constraint", got)
+	}
+}
+
+func TestBuildSetsGeneratedTimestamp(t *testing.T) {
+	reg := &fakeRegistry{images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:a"}}}
+	before := time.Now().Add(-time.Second)
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "a", "redis", "redis:8.2")},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 1})
+
+	if r.Generated.Before(before) {
+		t.Errorf("Generated = %v, want a recent timestamp", r.Generated)
+	}
+}
