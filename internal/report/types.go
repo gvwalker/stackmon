@@ -45,8 +45,13 @@ type Image struct {
 	// org.opencontainers.image.version label.
 	Version string `json:"version,omitempty"`
 	// Candidate is the newest tag that supersedes Version.
-	Candidate string      `json:"candidate,omitempty"`
-	Kind      policy.Kind `json:"-"`
+	Candidate string `json:"candidate,omitempty"`
+	// CandidateDigest is the registry digest for Candidate, resolved
+	// separately from RegistryDigest: RegistryDigest describes only the
+	// declared reference, never a different candidate version. Empty when
+	// there is no candidate or its digest could not be resolved.
+	CandidateDigest string      `json:"candidate_digest,omitempty"`
+	Kind            policy.Kind `json:"-"`
 	// KindName is Kind rendered for JSON consumers.
 	KindName string   `json:"kind,omitempty"`
 	Ordered  []string `json:"ordered,omitempty"`

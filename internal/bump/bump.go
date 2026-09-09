@@ -35,22 +35,33 @@ func Plan(st compose.Stack, svc compose.Service, img report.Image) (Change, erro
 			st.Name, svc.Name, strings.Join(ref.Vars, ", "), st.Dir)
 	}
 
-	// A digest-only pin's registry digest describes only the currently
-	// declared reference, not any candidate version: the registry serves
-	// exactly what was asked for. There is no way to know the candidate's
-	// digest, so the pin must be moved to a tag before it can advance.
-	if ref.Shape == imageref.ShapeDigestOnly && img.Candidate != "" {
-		return Change{}, fmt.Errorf(
-			"bump: %s/%s is pinned by digest at version %s; the registry digest for candidate %s is not known (a digest-only pin's registry digest reflects only the currently declared reference), so move the pin to a tag reference before advancing from %s to %s",
-			st.Name, svc.Name, img.Version, img.Candidate, img.Version, img.Candidate)
-	}
-
 	tag, digest := ref.Tag, ref.Digest
 
-	if img.Candidate != "" {
+	switch {
+	case img.Candidate != "":
 		tag = img.Candidate
-	}
-	if digest != "" && img.RegistryDigest != "" {
+		if ref.Shape != imageref.ShapeTagOnly {
+			// A tag+digest or digest-only pin also carries a digest, and it
+			// must be the candidate's, not the declared reference's:
+			// RegistryDigest is what the registry serves for the
+			// reference exactly as currently pinned, never for a
+			// different version. Without the candidate's own digest there
+			// is no safe value to write.
+			if img.CandidateDigest == "" {
+				current := ref.Tag
+				if ref.Shape == imageref.ShapeDigestOnly {
+					current = img.Version
+				}
+				return Change{}, fmt.Errorf(
+					"bump: %s/%s: candidate %s's digest could not be resolved (currently at %s); the pin cannot be safely advanced without it",
+					st.Name, svc.Name, img.Candidate, current)
+			}
+			digest = img.CandidateDigest
+		}
+	case digest != "" && img.RegistryDigest != "":
+		// No candidate: only the digest may have drifted under the same
+		// declared version, so the registry's digest for that reference is
+		// exactly what's needed.
 		digest = img.RegistryDigest
 	}
 
@@ -102,6 +113,22 @@ func rebuild(ref imageref.Ref, tag, digest string) string {
 	return b.String()
 }
 
+// validateRange checks that c's range is well-formed and still fits within
+// data, before either Apply or Diff slices by it. Change's fields are
+// exported and the type is designed to survive between a check and a later
+// bump, so a hostile or stale value (a negative Offset, or a non-positive
+// Length that would invert the slice bounds) must be rejected cleanly
+// rather than panic.
+func validateRange(c Change, dataLen int) error {
+	if c.Length <= 0 {
+		return fmt.Errorf("bump: %s has an invalid range (length %d); re-run check", c.Path, c.Length)
+	}
+	if c.Offset < 0 || c.Offset+c.Length > dataLen {
+		return fmt.Errorf("bump: %s changed since it was checked; re-run check", c.Path)
+	}
+	return nil
+}
+
 // Apply writes the change, aborting if the file no longer matches what was
 // observed, so a concurrent edit cannot be clobbered.
 func Apply(c Change) error {
@@ -110,8 +137,8 @@ func Apply(c Change) error {
 		return fmt.Errorf("bump: reading %s: %w", c.Path, err)
 	}
 
-	if c.Offset < 0 || c.Offset+c.Length > len(data) {
-		return fmt.Errorf("bump: %s changed since it was checked; re-run check", c.Path)
+	if err := validateRange(c, len(data)); err != nil {
+		return err
 	}
 	if got := string(data[c.Offset : c.Offset+c.Length]); got != c.Old {
 		return fmt.Errorf("bump: %s changed since it was checked (found %q where %q was expected); re-run check", c.Path, got, c.Old)
@@ -161,8 +188,15 @@ func Diff(c Change) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("bump: reading %s: %w", c.Path, err)
 	}
-	if c.Offset+c.Length > len(data) {
-		return "", fmt.Errorf("bump: %s changed since it was checked; re-run check", c.Path)
+	if err := validateRange(c, len(data)); err != nil {
+		return "", err
+	}
+	// FINDING 3: a dry-run that lies about the pending change is worse than
+	// no dry-run. Apply the same staleness check Apply uses before
+	// rendering a preview, so a concurrent edit is refused rather than
+	// shown as a no-op or a diff of the wrong text.
+	if got := string(data[c.Offset : c.Offset+c.Length]); got != c.Old {
+		return "", fmt.Errorf("bump: %s changed since it was checked (found %q where %q was expected); re-run check", c.Path, got, c.Old)
 	}
 
 	start := strings.LastIndex(string(data[:c.Offset]), "\n") + 1

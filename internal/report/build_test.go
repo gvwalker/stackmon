@@ -291,3 +291,63 @@ func TestBuildRetainsAllApplicableStatuses(t *testing.T) {
 		t.Errorf("Statuses = %v, want both update-available and not-deployed retained", got.Statuses)
 	}
 }
+
+// CandidateDigest must be resolved from the candidate version specifically,
+// never reused from RegistryDigest: the registry digest for the declared
+// reference and for a different candidate version are two different
+// lookups against two different tags.
+func TestBuildResolvesCandidateDigest(t *testing.T) {
+	const declaredDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const candidateDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	const ref = "ghcr.io/acme/app:1.0.0"
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{
+			ref:                       {Digest: declaredDigest},
+			"ghcr.io/acme/app:1.1.0": {Digest: candidateDigest},
+		},
+		tags: map[string][]string{"ghcr.io/acme/app": {"1.0.0", "1.1.0"}},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "acme", "app", ref)},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 2})
+
+	got := r.Images[0]
+	if got.Candidate != "1.1.0" {
+		t.Fatalf("Candidate = %q, want 1.1.0", got.Candidate)
+	}
+	if got.CandidateDigest != candidateDigest {
+		t.Errorf("CandidateDigest = %q, want %q", got.CandidateDigest, candidateDigest)
+	}
+	if got.RegistryDigest == got.CandidateDigest {
+		t.Errorf("RegistryDigest and CandidateDigest are both %q; the declared and candidate digests must be resolved independently", got.RegistryDigest)
+	}
+}
+
+// A row whose candidate's digest can't be resolved must still report its
+// status normally with CandidateDigest left empty: a registry hiccup on the
+// second pass must not fail the run or corrupt Status, which is already
+// correct from the first pass. Only the bump path loses information.
+func TestBuildLeavesCandidateDigestEmptyWhenLookupFails(t *testing.T) {
+	const ref = "ghcr.io/acme/app:1.0.0"
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{ref: {Digest: "sha256:aaaa"}},
+		tags:   map[string][]string{"ghcr.io/acme/app": {"1.0.0", "1.1.0"}},
+		// No entry for "ghcr.io/acme/app:1.1.0": Inspect returns "not found".
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "acme", "app", ref)},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 2})
+
+	got := r.Images[0]
+	if got.Candidate != "1.1.0" {
+		t.Fatalf("Candidate = %q, want 1.1.0", got.Candidate)
+	}
+	if got.Status != StatusUpdateAvailable {
+		t.Errorf("Status = %q, want update-available even though the candidate digest lookup failed", got.Status)
+	}
+	if got.CandidateDigest != "" {
+		t.Errorf("CandidateDigest = %q, want empty when the lookup fails", got.CandidateDigest)
+	}
+}

@@ -118,6 +118,48 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 		}
 	}
 
+	// Second pass: resolve each unique candidate's digest, so bump can pair
+	// an advancing tag with the correct new digest instead of the declared
+	// reference's stale one. RegistryDigest above describes only the
+	// declared reference and is never the candidate's digest. A failure
+	// here must not fail the run or affect Status: only the bump path is
+	// missing information.
+	candidateKeys := map[string]struct{}{}
+	for _, img := range r.Images {
+		if img.Candidate == "" {
+			continue
+		}
+		candidateKeys[img.Ref.Registry+"/"+img.Ref.Repository+":"+img.Candidate] = struct{}{}
+	}
+
+	if len(candidateKeys) > 0 {
+		digests := make(map[string]string, len(candidateKeys))
+		var dmu sync.Mutex
+
+		cg, cgctx := errgroup.WithContext(ctx)
+		cg.SetLimit(opts.Concurrency)
+		for key := range candidateKeys {
+			key := key
+			cg.Go(func() error {
+				if img, err := opts.Registry.Inspect(cgctx, key); err == nil {
+					dmu.Lock()
+					digests[key] = img.Digest
+					dmu.Unlock()
+				}
+				return nil // A failed lookup just leaves CandidateDigest empty.
+			})
+		}
+		_ = cg.Wait() // No goroutine returns an error.
+
+		for i := range r.Images {
+			if r.Images[i].Candidate == "" {
+				continue
+			}
+			key := r.Images[i].Ref.Registry + "/" + r.Images[i].Ref.Repository + ":" + r.Images[i].Candidate
+			r.Images[i].CandidateDigest = digests[key]
+		}
+	}
+
 	sort.Slice(r.Images, func(i, j int) bool {
 		if r.Images[i].Stack != r.Images[j].Stack {
 			return r.Images[i].Stack < r.Images[j].Stack

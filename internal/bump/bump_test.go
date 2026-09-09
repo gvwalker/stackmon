@@ -86,7 +86,7 @@ func TestApplyReplacesDigestAndPreservesComments(t *testing.T) {
 func TestPlanAdvancesTagAndDigestTogether(t *testing.T) {
 	body := "services:\n  a:\n    image: adguard/adguardhome:v0.107.79@sha256:" + digestA + "\n"
 	st, svc, _ := serviceAt(t, body, "adguard/adguardhome:v0.107.79@sha256:"+digestA)
-	img := report.Image{Candidate: "v0.107.80", RegistryDigest: "sha256:cccc"}
+	img := report.Image{Candidate: "v0.107.80", CandidateDigest: "sha256:cccc"}
 
 	c, err := Plan(st, svc, img)
 	if err != nil {
@@ -156,18 +156,34 @@ func TestPlanRefusesWhenNothingToChange(t *testing.T) {
 	}
 }
 
-// RULING E: a digest-only pin's registry digest describes only the declared
-// reference (the registry serves exactly what was asked for), never the
-// candidate version's digest. Plan cannot know what digest the candidate
-// resolves to, so it must refuse rather than silently doing nothing or
-// producing a confusing "already at X" message.
-func TestPlanRefusesVersionBumpOnDigestOnlyPin(t *testing.T) {
+// RULING O: a digest-only pin's registry digest describes only the
+// declared reference, never a different candidate version, but its
+// CandidateDigest is resolved independently and is exactly what a
+// digest-only pin needs to advance -- this is a legitimate bump, not a
+// refusal.
+func TestPlanAdvancesDigestOnlyPinToCandidateDigest(t *testing.T) {
+	body := "services:\n  a:\n    image: traefik@sha256:" + digestA + "\n"
+	st, svc, _ := serviceAt(t, body, "traefik@sha256:"+digestA)
+
+	c, err := Plan(st, svc, report.Image{Version: "v3.0.0", Candidate: "v3.1.0", CandidateDigest: "sha256:cccc"})
+	if err != nil {
+		t.Fatalf("Plan error: %v", err)
+	}
+	if want := "traefik@sha256:cccc"; c.New != want {
+		t.Errorf("New = %q, want %q", c.New, want)
+	}
+}
+
+// Without the candidate's own digest, a digest-only pin cannot be safely
+// advanced: there is no tag to fall back to, and reusing RegistryDigest
+// would silently pin the wrong version's bytes.
+func TestPlanRefusesDigestOnlyBumpWhenCandidateDigestUnknown(t *testing.T) {
 	body := "services:\n  a:\n    image: traefik@sha256:" + digestA + "\n"
 	st, svc, _ := serviceAt(t, body, "traefik@sha256:"+digestA)
 
 	_, err := Plan(st, svc, report.Image{Version: "v3.0.0", Candidate: "v3.1.0"})
 	if err == nil {
-		t.Fatal("Plan advancing a digest-only pin's version = nil error, want refusal")
+		t.Fatal("Plan advancing a digest-only pin with no known candidate digest = nil error, want refusal")
 	}
 	if !strings.Contains(err.Error(), "v3.0.0") {
 		t.Errorf("error should name the current version, got: %v", err)
@@ -175,8 +191,23 @@ func TestPlanRefusesVersionBumpOnDigestOnlyPin(t *testing.T) {
 	if !strings.Contains(err.Error(), "v3.1.0") {
 		t.Errorf("error should name the candidate version, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "tag") {
-		t.Errorf("error should explain moving the pin to a tag, got: %v", err)
+}
+
+// Same guard for a tag+digest pin: without the candidate's own digest, the
+// tag cannot be advanced while keeping the pin trustworthy.
+func TestPlanRefusesTagDigestBumpWhenCandidateDigestUnknown(t *testing.T) {
+	body := "services:\n  a:\n    image: adguard/adguardhome:v0.107.79@sha256:" + digestA + "\n"
+	st, svc, _ := serviceAt(t, body, "adguard/adguardhome:v0.107.79@sha256:"+digestA)
+
+	_, err := Plan(st, svc, report.Image{Candidate: "v0.107.80"})
+	if err == nil {
+		t.Fatal("Plan advancing a tag+digest pin with no known candidate digest = nil error, want refusal")
+	}
+	if !strings.Contains(err.Error(), "v0.107.79") {
+		t.Errorf("error should name the current version, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "v0.107.80") {
+		t.Errorf("error should name the candidate version, got: %v", err)
 	}
 }
 
@@ -246,10 +277,139 @@ func TestDiffShowsBothLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Diff error: %v", err)
 	}
-	if !strings.Contains(d, "-") || !strings.Contains(d, "+") {
-		t.Errorf("diff lacks -/+ lines:\n%s", d)
+	// FINDING 4: "-" and "+" alone are satisfied by the "---"/"+++" headers
+	// even if the body lines were garbage, so assert the actual old and new
+	// content lines instead.
+	wantOld := "-    image: traefik@sha256:" + digestA
+	wantNew := "+    image: traefik@sha256:bbbb"
+	if !strings.Contains(d, wantOld) {
+		t.Errorf("diff missing old content line %q:\n%s", wantOld, d)
 	}
-	if !strings.Contains(d, "sha256:bbbb") {
-		t.Errorf("diff omits the new digest:\n%s", d)
+	if !strings.Contains(d, wantNew) {
+		t.Errorf("diff missing new content line %q:\n%s", wantNew, d)
+	}
+}
+
+// RULING O supersedes Ruling E: RegistryDigest describes only the declared
+// reference, never a different candidate version. A tag+digest bump that
+// reused RegistryDigest for the new digest would silently pair the
+// advancing tag with the *previous* version's digest -- a syntactically
+// valid, factually wrong pin. This proves the candidate's own digest wins.
+func TestPlanTagDigestBumpUsesCandidateDigestNotDeclaredDigest(t *testing.T) {
+	body := "services:\n  a:\n    image: adguard/adguardhome:v0.107.79@sha256:" + digestA + "\n"
+	st, svc, _ := serviceAt(t, body, "adguard/adguardhome:v0.107.79@sha256:"+digestA)
+	img := report.Image{
+		Candidate:       "v0.107.80",
+		RegistryDigest:  "sha256:" + digestA, // the declared v0.107.79's own digest
+		CandidateDigest: "sha256:cccc",       // v0.107.80's digest -- different
+	}
+
+	c, err := Plan(st, svc, img)
+	if err != nil {
+		t.Fatalf("Plan error: %v", err)
+	}
+	if want := "adguard/adguardhome:v0.107.80@sha256:cccc"; c.New != want {
+		t.Errorf("New = %q, want %q (must use CandidateDigest, not RegistryDigest)", c.New, want)
+	}
+	if strings.Contains(c.New, digestA) {
+		t.Errorf("New = %q pairs the new tag with the declared reference's digest instead of the candidate's", c.New)
+	}
+}
+
+// FINDING 2: Change's fields are exported and the type is explicitly
+// designed to survive between a check and a later bump, so a hostile or
+// stale value (here an inverted range, Offset 5 paired with Length -3) is
+// in scope. Apply must reject it cleanly rather than let
+// data[c.Offset:c.Offset+c.Length] panic with "slice bounds out of range".
+func TestApplyRejectsNonPositiveLength(t *testing.T) {
+	st, svc, path := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
+	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Length = -3
+
+	if err := Apply(c); err == nil {
+		t.Fatal("Apply with a negative Length = nil error, want refusal")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != traefikFile {
+		t.Error("Apply modified the file despite an invalid Length")
+	}
+}
+
+// A zero Length would replace nothing while still claiming a rewrite
+// happened; Plan never produces one, so it can only arrive via a
+// hand-built or corrupted Change and must be refused the same way.
+func TestApplyRejectsZeroLength(t *testing.T) {
+	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
+	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Length = 0
+
+	if err := Apply(c); err == nil {
+		t.Fatal("Apply with a zero Length = nil error, want refusal")
+	}
+}
+
+// Diff must never panic on a hostile or stale Change either: data[:c.Offset]
+// with a negative Offset panics immediately, before any length check runs.
+func TestDiffRejectsNegativeOffset(t *testing.T) {
+	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
+	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Offset = -1
+
+	if _, err := Diff(c); err == nil {
+		t.Fatal("Diff with a negative Offset = nil error, want refusal")
+	}
+}
+
+func TestDiffRejectsNonPositiveLength(t *testing.T) {
+	st, svc, _ := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
+	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Length = -3
+
+	if _, err := Diff(c); err == nil {
+		t.Fatal("Diff with a negative Length = nil error, want refusal")
+	}
+}
+
+// FINDING 3: a dry-run that lies about the pending change is worse than no
+// dry-run. After a concurrent edit, Diff must refuse exactly like Apply
+// does, rather than rendering a preview against text that no longer
+// matches Old. The edit here is deliberately the same length as the
+// original digest so the file's total size is unchanged: only a genuine
+// content comparison (not merely Offset+Length exceeding len(data)) can
+// catch it.
+func TestDiffAbortsWhenFileChangedSinceCheck(t *testing.T) {
+	st, svc, path := serviceAt(t, traefikFile, "traefik@sha256:"+digestA)
+	c, err := Plan(st, svc, report.Image{RegistryDigest: "sha256:bbbb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const digestE = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	edited := strings.Replace(traefikFile, "traefik@sha256:"+digestA, "traefik@sha256:"+digestE, 1)
+	if len(edited) != len(traefikFile) {
+		t.Fatalf("test fixture bug: edited length %d != original length %d", len(edited), len(traefikFile))
+	}
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Diff(c); err == nil {
+		t.Fatal("Diff after a same-length concurrent edit = nil error, want refusal")
 	}
 }
