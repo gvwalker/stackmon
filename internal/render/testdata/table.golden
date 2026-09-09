@@ -1,0 +1,5 @@
+STACK    SERVICE  VERSION    STATUS            DETAIL
+adguard  adguard  v0.107.79  update-available  v0.107.80 available (patch)
+media    sonarr   latest     stale-deployment  running image older than the tag now resolves to
+traefik  traefik  v3.7.10    current           
+broken   app      -          unknown           registry unreachable
