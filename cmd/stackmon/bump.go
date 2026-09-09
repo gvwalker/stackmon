@@ -21,7 +21,7 @@ func newBumpCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stacks, err := resolve(inv, args[:1])
+			stacks, missing, err := resolve(inv, args[:1])
 			if err != nil {
 				return err
 			}
@@ -29,6 +29,7 @@ func newBumpCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			printFailures(cmd, missing)
 			printFailures(cmd, failures)
 
 			var only string

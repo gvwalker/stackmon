@@ -67,27 +67,35 @@ func loadInventory() (inventory.Inventory, string, error) {
 }
 
 // resolve selects enrolled stacks by name, or all of them when names is
-// empty. A stack whose path no longer exists is an error rather than a silent
-// skip, so a moved directory surfaces immediately.
-func resolve(inv inventory.Inventory, names []string) ([]inventory.Stack, error) {
-	var out []inventory.Stack
+// empty. A stack whose path no longer exists (an unmounted drive, a moved
+// directory) is reported as a warning alongside compose parse failures
+// rather than aborting the run: the exit-code table reserves 1 for stackmon
+// itself failing, and one moved directory must not blank the whole report.
+// Only an explicitly named stack that isn't enrolled at all is a hard
+// error -- that's a user mistake, not a runtime fact to degrade around.
+func resolve(inv inventory.Inventory, names []string) ([]inventory.Stack, []error, error) {
+	var candidates []inventory.Stack
 
 	if len(names) == 0 {
-		out = append(out, inv.Stacks...)
+		candidates = append(candidates, inv.Stacks...)
 	} else {
 		for _, n := range names {
 			s, ok := inv.Find(n)
 			if !ok {
-				return nil, fmt.Errorf("%q is not enrolled; run 'stackmon discover' to see what is available", n)
+				return nil, nil, fmt.Errorf("%q is not enrolled; run 'stackmon discover' to see what is available", n)
 			}
-			out = append(out, s)
+			candidates = append(candidates, s)
 		}
 	}
 
-	for _, s := range out {
+	var out []inventory.Stack
+	var missing []error
+	for _, s := range candidates {
 		if _, err := os.Stat(filepath.Join(s.Dir, s.File)); err != nil {
-			return nil, fmt.Errorf("enrolled stack %q no longer exists at %s; re-enroll it or run 'stackmon unenroll %s'", s.Name, s.Path(), s.Name)
+			missing = append(missing, fmt.Errorf("enrolled stack %q no longer exists at %s; re-enroll it or run 'stackmon unenroll %s'", s.Name, s.Path(), s.Name))
+			continue
 		}
+		out = append(out, s)
 	}
-	return out, nil
+	return out, missing, nil
 }

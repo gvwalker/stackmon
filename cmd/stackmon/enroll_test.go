@@ -18,32 +18,40 @@ func TestResolveReturnsEnrolledStack(t *testing.T) {
 		{Name: "traefik", Dir: dir, File: "compose.yaml"},
 	}}
 
-	got, err := resolve(inv, []string{"traefik"})
+	got, missing, err := resolve(inv, []string{"traefik"})
 	if err != nil {
 		t.Fatalf("resolve error: %v", err)
+	}
+	if len(missing) != 0 {
+		t.Errorf("missing = %v, want none", missing)
 	}
 	if len(got) != 1 || got[0].Name != "traefik" {
 		t.Errorf("resolve = %+v", got)
 	}
 }
 
-// A moved or deleted stack must be a loud error, never a silent skip.
-func TestResolveErrorsWhenStackPathMissing(t *testing.T) {
+// A moved or unmounted stack must not abort the whole run: it degrades to a
+// warning, exactly like an unparseable compose file does, and the run
+// continues at exit 0.
+func TestResolveReportsMissingStackPathAsWarningNotError(t *testing.T) {
 	inv := inventory.Inventory{Stacks: []inventory.Stack{
 		{Name: "ghost", Dir: filepath.Join(t.TempDir(), "gone"), File: "compose.yaml"},
 	}}
 
-	_, err := resolve(inv, nil)
-	if err == nil {
-		t.Fatal("resolve with a missing path = nil error, want error")
+	stacks, missing, err := resolve(inv, nil)
+	if err != nil {
+		t.Fatalf("resolve with a missing path = error %v, want nil (the run must continue)", err)
 	}
-	if !strings.Contains(err.Error(), "ghost") {
-		t.Errorf("error should name the stack, got: %v", err)
+	if len(stacks) != 0 {
+		t.Errorf("stacks = %+v, want none (a missing stack must not be returned as present)", stacks)
+	}
+	if len(missing) != 1 || !strings.Contains(missing[0].Error(), "ghost") {
+		t.Errorf("missing = %v, want exactly one warning naming ghost", missing)
 	}
 }
 
 func TestResolveUnknownNameErrors(t *testing.T) {
-	if _, err := resolve(inventory.Inventory{}, []string{"nope"}); err == nil {
+	if _, _, err := resolve(inventory.Inventory{}, []string{"nope"}); err == nil {
 		t.Fatal("resolve of an unenrolled name = nil error, want error")
 	}
 }

@@ -69,7 +69,7 @@ func newCheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stacks, err := resolve(inv, args)
+			stacks, missing, err := resolve(inv, args)
 			if err != nil {
 				return err
 			}
@@ -80,6 +80,7 @@ func newCheckCmd() *cobra.Command {
 			}
 			// Printed to stderr first so stdout stays a clean table for
 			// piping, regardless of --json.
+			printFailures(cmd, missing)
 			printFailures(cmd, failures)
 
 			if asJSON {

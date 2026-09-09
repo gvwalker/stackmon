@@ -19,7 +19,7 @@ func newShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stacks, err := resolve(inv, args)
+			stacks, missing, err := resolve(inv, args)
 			if err != nil {
 				return err
 			}
@@ -27,6 +27,7 @@ func newShowCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			printFailures(cmd, missing)
 			printFailures(cmd, failures)
 
 			fetcher := notes.New(token)
