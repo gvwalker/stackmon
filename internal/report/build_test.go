@@ -302,7 +302,7 @@ func TestBuildResolvesCandidateDigest(t *testing.T) {
 	const ref = "ghcr.io/acme/app:1.0.0"
 	reg := &fakeRegistry{
 		images: map[string]registry.Image{
-			ref:                       {Digest: declaredDigest},
+			ref:                      {Digest: declaredDigest},
 			"ghcr.io/acme/app:1.1.0": {Digest: candidateDigest},
 		},
 		tags: map[string][]string{"ghcr.io/acme/app": {"1.0.0", "1.1.0"}},
