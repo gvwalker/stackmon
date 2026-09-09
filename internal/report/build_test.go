@@ -21,6 +21,7 @@ type fakeRegistry struct {
 	images   map[string]registry.Image
 	tags     map[string][]string
 	inspects map[string]int
+	tagCalls map[string]int
 	err      error
 }
 
@@ -44,6 +45,10 @@ func (f *fakeRegistry) Inspect(_ context.Context, ref string) (registry.Image, e
 func (f *fakeRegistry) Tags(_ context.Context, repo string) ([]string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.tagCalls == nil {
+		f.tagCalls = map[string]int{}
+	}
+	f.tagCalls[repo]++
 	return f.tags[repo], nil
 }
 
@@ -156,6 +161,9 @@ func TestBuildSkipsTagListingForOpaqueTags(t *testing.T) {
 	if got := r.Images[0].Candidate; got != "" {
 		t.Errorf("Candidate = %q, want empty for an opaque tag", got)
 	}
+	if n := reg.tagCalls["lscr.io/linuxserver/sonarr"]; n != 0 {
+		t.Errorf("Tags called %d times for an opaque tag, want 0", n)
+	}
 }
 
 func TestBuildRegistryFailureBecomesUnknownRowNotFatal(t *testing.T) {
@@ -243,5 +251,43 @@ func TestBuildSetsGeneratedTimestamp(t *testing.T) {
 
 	if r.Generated.Before(before) {
 		t.Errorf("Generated = %v, want a recent timestamp", r.Generated)
+	}
+}
+
+// An image can be both behind a version and undeployed at once; Statuses
+// must retain every applicable status even though Status reports only the
+// most actionable one. A regression that made applicable() stop at the
+// first match would pass every other test in this file while silently
+// dropping this contract.
+func TestBuildRetainsAllApplicableStatuses(t *testing.T) {
+	const declared = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const running = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const ref = "ghcr.io/acme/app:1.0.0@" + declared
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{ref: {Digest: declared}},
+		tags:   map[string][]string{"ghcr.io/acme/app": {"1.0.0", "1.1.0"}},
+	}
+	docker := fakeDockerProber{
+		available: true,
+		containers: []local.Container{
+			{Project: "acme", Service: "app", ImageID: running},
+		},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "acme", "app", ref)},
+		Options{Registry: reg, Docker: docker, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Status != StatusUpdateAvailable {
+		t.Fatalf("Status = %q, want update-available", got.Status)
+	}
+	hasUpdate, hasNotDeployed := false, false
+	for _, s := range got.Statuses {
+		hasUpdate = hasUpdate || s == StatusUpdateAvailable
+		hasNotDeployed = hasNotDeployed || s == StatusNotDeployed
+	}
+	if !hasUpdate || !hasNotDeployed {
+		t.Errorf("Statuses = %v, want both update-available and not-deployed retained", got.Statuses)
 	}
 }
