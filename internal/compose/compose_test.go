@@ -97,3 +97,25 @@ func TestLoadMissingFileErrors(t *testing.T) {
 		t.Fatal("Load of missing file = nil error, want error")
 	}
 }
+
+// yaml.Node.Column is a 1-indexed rune count, not a byte count. A multi-byte
+// UTF-8 character earlier on the same line must not throw off the computed
+// byte offset of a later image value.
+func TestLoadRecordsOffsetWithMultibyteUTF8OnLine(t *testing.T) {
+	st, err := Load(context.Background(), "unicode", "testdata/unicode", "docker-compose.yml")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join("testdata/unicode", "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Services) != 1 {
+		t.Fatalf("Services = %d, want 1", len(st.Services))
+	}
+	svc := st.Services[0]
+	got := string(data[svc.Offset : svc.Offset+svc.Length])
+	if got != svc.Ref.Raw {
+		t.Errorf("bytes at offset = %q, want %q", got, svc.Ref.Raw)
+	}
+}

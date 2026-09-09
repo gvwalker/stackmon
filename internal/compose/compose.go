@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
@@ -88,11 +89,22 @@ func Load(ctx context.Context, name, dir, file string) (Stack, error) {
 		if err != nil {
 			return Stack{}, fmt.Errorf("compose: service %q: %w", svcName, err)
 		}
+		// bump rewrites exactly [Offset, Offset+Length) in the real file, so
+		// a wrong position must fail loudly here rather than silently
+		// corrupt a user's compose file later.
+		length := len(pos.text)
+		got := ""
+		if pos.offset >= 0 && pos.offset+length <= len(data) {
+			got = string(data[pos.offset : pos.offset+length])
+		}
+		if got != pos.text {
+			return Stack{}, fmt.Errorf("compose: service %q in %s: offset [%d:%d] holds %q, want image text %q", svcName, path, pos.offset, pos.offset+length, got, pos.text)
+		}
 		st.Services = append(st.Services, Service{
 			Name:   svcName,
 			Ref:    ref,
 			Offset: pos.offset,
-			Length: len(pos.text),
+			Length: length,
 		})
 	}
 
@@ -161,7 +173,7 @@ func rawImages(data []byte) (map[string]imagePos, error) {
 		if image == nil {
 			continue
 		}
-		off, err := offsetOf(lineStarts, image.Line, image.Column)
+		off, err := offsetOf(data, lineStarts, image.Line, image.Column)
 		if err != nil {
 			return nil, fmt.Errorf("service %q: %w", svcName, err)
 		}
@@ -194,10 +206,29 @@ func lineOffsets(data []byte) []int {
 	return offsets
 }
 
-// offsetOf converts a 1-indexed line and column into a byte offset.
-func offsetOf(lineStarts []int, line, column int) (int, error) {
+// offsetOf converts a 1-indexed line and 1-indexed column into a byte
+// offset. yaml.Node.Column counts runes, not bytes: it is incremented once
+// per character scanned regardless of that character's UTF-8 width. A byte
+// offset is only correct if it walks the same number of runes rather than
+// adding column-1 bytes directly.
+func offsetOf(data []byte, lineStarts []int, line, column int) (int, error) {
 	if line < 1 || line >= len(lineStarts) {
 		return 0, fmt.Errorf("line %d out of range", line)
 	}
-	return lineStarts[line] + column - 1, nil
+	lineEnd := len(data)
+	if line+1 < len(lineStarts) {
+		lineEnd = lineStarts[line+1]
+	}
+	pos := lineStarts[line]
+	for i := 1; i < column; i++ {
+		if pos >= lineEnd {
+			return 0, fmt.Errorf("column %d past end of line %d", column, line)
+		}
+		_, size := utf8.DecodeRune(data[pos:lineEnd])
+		pos += size
+	}
+	if pos > lineEnd {
+		return 0, fmt.Errorf("column %d past end of line %d", column, line)
+	}
+	return pos, nil
 }

@@ -1,0 +1,2 @@
+services:
+  web: {container_name: "café-web", image: registry.io/app:1.0}
