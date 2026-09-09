@@ -265,15 +265,13 @@ Machine-written and human-written state are kept in separate files so that
 `enroll` may rewrite the inventory freely without touching anything hand-
 authored, and so overrides can carry explanatory comments.
 
-### Cache — `~/.cache/stackmon/`
-
-Keyed by digest and by `repo@tag`, with ETag revalidation and a TTL for tag
-lists. Config blobs for a given digest are immutable by definition and cached
-indefinitely. The directory is safe to delete at any time.
+### Registry credentials
 
 Docker credentials are read from `~/.docker/config.json`, including
 credential helpers, falling back to anonymous access. Stackmon stores no
 credentials of its own.
+
+No response caching is implemented; see "Explicitly out of scope".
 
 ## Stack identity and drift
 
@@ -341,3 +339,10 @@ the tool's value.
   either can be added later without restructuring.
 - Kubernetes, Docker Swarm, or any non-Compose source.
 - Automatic scheduled bumping.
+- Response caching. An earlier draft specified an ETag-revalidated cache at
+  `~/.cache/stackmon/`. Deferred: nine stacks amount to roughly twenty unique
+  images, which is one round of registry requests per run and far below Docker
+  Hub's anonymous limit. Caching is invisible to every other package — it sits
+  behind the `registry` client's existing methods — so adding it later changes
+  no interfaces. Revisit if `check` becomes slow or starts hitting rate
+  limits.
