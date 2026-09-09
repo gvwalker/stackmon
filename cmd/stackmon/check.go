@@ -33,6 +33,9 @@ func buildReport(ctx context.Context, stacks []inventory.Stack) (report.Report, 
 			failures = append(failures, fmt.Errorf("%s: %w", s.Name, err))
 			continue
 		}
+		for _, w := range st.Warnings {
+			failures = append(failures, fmt.Errorf("%s: %w", s.Name, w))
+		}
 		parsed = append(parsed, st)
 	}
 

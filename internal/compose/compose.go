@@ -34,6 +34,10 @@ type Stack struct {
 	Dir      string
 	File     string
 	Services []Service
+	// Warnings records per-service issues that were skipped rather than
+	// failing the whole stack: one unreadable image value must not erase
+	// its siblings.
+	Warnings []error
 }
 
 // Path is the absolute path of the compose file.
@@ -59,7 +63,12 @@ func Load(ctx context.Context, name, dir, file string) (Stack, error) {
 		ConfigFiles: []types.ConfigFile{{Filename: path, Content: data}},
 		Environment: environment(dir),
 	}, func(o *loader.Options) {
-		o.SetProjectName(name, true)
+		// compose-go rejects any non-normalised name when a project name is
+		// imperatively set. The inventory's display name is kept as
+		// enrolled -- normalisation is a compose-loading detail, not a
+		// rename of the user's stack -- so normalise only the name handed
+		// to compose-go here, matching what Docker Compose itself does.
+		o.SetProjectName(loader.NormalizeProjectName(name), true)
 		// Resolving paths would fail on bind mounts pointing at absent
 		// directories, and stackmon only needs image fields.
 		o.ResolvePaths = false
@@ -89,21 +98,43 @@ func Load(ctx context.Context, name, dir, file string) (Stack, error) {
 		if err != nil {
 			return Stack{}, fmt.Errorf("compose: service %q: %w", svcName, err)
 		}
-		// bump rewrites exactly [Offset, Offset+Length) in the real file, so
-		// a wrong position must fail loudly here rather than silently
-		// corrupt a user's compose file later.
-		length := len(pos.text)
-		got := ""
-		if pos.offset >= 0 && pos.offset+length <= len(data) {
-			got = string(data[pos.offset : pos.offset+length])
+
+		// A quoted scalar's reported Column points at the opening quote,
+		// not the first content character, so the span verified against
+		// the file's bytes must include the quote characters too. The
+		// stored Offset/Length brackets only the inner text -- aligned
+		// with Ref.Raw, which is the decoded value -- so bump can rewrite
+		// it while leaving the quotes in place; image references never
+		// contain characters that need YAML escaping, so the decoded
+		// value's bytes always equal the inner literal bytes exactly.
+		quote := ""
+		switch {
+		case pos.style&yaml.DoubleQuotedStyle != 0:
+			quote = `"`
+		case pos.style&yaml.SingleQuotedStyle != 0:
+			quote = `'`
 		}
-		if got != pos.text {
-			return Stack{}, fmt.Errorf("compose: service %q in %s: offset [%d:%d] holds %q, want image text %q", svcName, path, pos.offset, pos.offset+length, got, pos.text)
+		length := len(pos.text)
+		fullLength := length + 2*len(quote)
+		want := quote + pos.text + quote
+
+		// bump rewrites exactly the stored [Offset, Offset+Length) in the
+		// real file, so a wrong position must be caught here rather than
+		// silently corrupt a user's compose file later. One unreadable
+		// service is skipped with a recorded warning rather than failing
+		// the whole stack: its siblings still parsed correctly.
+		got := ""
+		if pos.offset >= 0 && pos.offset+fullLength <= len(data) {
+			got = string(data[pos.offset : pos.offset+fullLength])
+		}
+		if got != want {
+			st.Warnings = append(st.Warnings, fmt.Errorf("compose: service %q in %s: offset [%d:%d] holds %q, want image text %q", svcName, path, pos.offset, pos.offset+fullLength, got, want))
+			continue
 		}
 		st.Services = append(st.Services, Service{
 			Name:   svcName,
 			Ref:    ref,
-			Offset: pos.offset,
+			Offset: pos.offset + len(quote),
 			Length: length,
 		})
 	}
@@ -142,6 +173,9 @@ func environment(dir string) types.Mapping {
 type imagePos struct {
 	text   string
 	offset int
+	// style records whether the YAML node was quoted, so the byte span
+	// verified against the file can account for the quote characters.
+	style yaml.Style
 }
 
 // rawImages finds the uninterpolated image value for each service along with
@@ -177,7 +211,7 @@ func rawImages(data []byte) (map[string]imagePos, error) {
 		if err != nil {
 			return nil, fmt.Errorf("service %q: %w", svcName, err)
 		}
-		out[svcName] = imagePos{text: image.Value, offset: off}
+		out[svcName] = imagePos{text: image.Value, offset: off, style: image.Style}
 	}
 	return out, nil
 }

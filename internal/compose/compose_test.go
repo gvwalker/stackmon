@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gvwalker/stackmon/internal/imageref"
@@ -117,5 +118,109 @@ func TestLoadRecordsOffsetWithMultibyteUTF8OnLine(t *testing.T) {
 	got := string(data[svc.Offset : svc.Offset+svc.Length])
 	if got != svc.Ref.Raw {
 		t.Errorf("bytes at offset = %q, want %q", got, svc.Ref.Raw)
+	}
+}
+
+// A quoted image value is idiomatic YAML and near-mandatory for some
+// interpolated refs. yaml.v3 reports a quoted scalar's Column as pointing at
+// the opening quote, not the first content character, so the offset
+// self-check must account for the quote characters or it mismatches and
+// aborts the whole stack.
+func TestLoadAcceptsSingleQuotedImageValue(t *testing.T) {
+	dir := t.TempDir()
+	body := "services:\n  web:\n    image: 'redis:8.2'\n"
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(context.Background(), "cache", dir, "compose.yaml")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if len(st.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", st.Warnings)
+	}
+	if len(st.Services) != 1 || st.Services[0].Ref.Resolved != "redis:8.2" {
+		t.Fatalf("Services = %+v, want one service resolving to redis:8.2", st.Services)
+	}
+
+	// The stored range must bracket the inner text, quotes excluded, so
+	// bump can rewrite the value while leaving the quotes in place.
+	data, err := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := st.Services[0]
+	got := string(data[svc.Offset : svc.Offset+svc.Length])
+	if got != "redis:8.2" {
+		t.Errorf("bytes at offset = %q, want the unquoted image text", got)
+	}
+}
+
+func TestLoadAcceptsDoubleQuotedImageValue(t *testing.T) {
+	dir := t.TempDir()
+	body := "services:\n  web:\n    image: \"redis:8.2\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(context.Background(), "cache", dir, "compose.yaml")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if len(st.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none", st.Warnings)
+	}
+	if len(st.Services) != 1 || st.Services[0].Ref.Resolved != "redis:8.2" {
+		t.Fatalf("Services = %+v, want one service resolving to redis:8.2", st.Services)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := st.Services[0]
+	got := string(data[svc.Offset : svc.Offset+svc.Length])
+	if got != "redis:8.2" {
+		t.Errorf("bytes at offset = %q, want the unquoted image text", got)
+	}
+}
+
+// A stack name with an uppercase letter, dot, or space is not itself
+// invalid: compose-go rejects it only when SetProjectName is imperatively
+// set with the raw name, so Load must normalise it first, matching what
+// Docker Compose itself does.
+func TestLoadNormalisesNonLowercaseProjectName(t *testing.T) {
+	if _, err := Load(context.Background(), "Nextcloud", "testdata/traefik", "docker-compose.yml"); err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+}
+
+// A service whose image value cannot be verified must not erase its
+// siblings: Load skips it with a recorded warning and keeps everything else
+// that did parse correctly.
+func TestLoadSkipsUnverifiableServiceButKeepsSiblings(t *testing.T) {
+	dir := t.TempDir()
+	// A literal block scalar is a real YAML style Load does not special-case
+	// (only plain, single- and double-quoted scalars are): its raw
+	// representation includes the block indicator and indentation, so the
+	// decoded value's bytes never equal the span at the recorded position.
+	body := "services:\n  web:\n    image: |-\n      redis:8.2\n  cache:\n    image: redis:8.2\n"
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := Load(context.Background(), "lab", dir, "compose.yaml")
+	if err != nil {
+		t.Fatalf("Load error: %v, want nil (one bad service must not fail the whole stack)", err)
+	}
+	if len(st.Services) != 1 || st.Services[0].Name != "cache" {
+		t.Fatalf("Services = %+v, want only cache", st.Services)
+	}
+	if len(st.Warnings) != 1 {
+		t.Fatalf("Warnings = %v, want exactly one", st.Warnings)
+	}
+	if !strings.Contains(st.Warnings[0].Error(), "web") {
+		t.Errorf("warning should name the skipped service, got: %v", st.Warnings[0])
 	}
 }
