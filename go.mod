@@ -1,6 +1,6 @@
 module github.com/gvwalker/stackmon
 
-go 1.27.1
+go 1.27
 
 require github.com/google/go-containerregistry v0.22.1
 

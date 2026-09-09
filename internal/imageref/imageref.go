@@ -55,7 +55,11 @@ type Ref struct {
 
 func (r Ref) String() string { return r.Resolved }
 
-var varPattern = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
+// varPattern matches a ${VAR} or $VAR reference in compose-file text. The
+// leading alternative consumes compose's `$$` literal-dollar escape so the
+// text after it is never read as a variable name; those matches have an empty
+// capture group and are skipped.
+var varPattern = regexp.MustCompile(`\$\$|\$\{?([A-Za-z_][A-Za-z0-9_]*)`)
 
 // Parse splits a reference into its parts. raw is the compose-file text and
 // resolved is that text after interpolation; pass the same string for both
@@ -80,6 +84,9 @@ func Parse(raw, resolved string) (Ref, error) {
 
 	if r.Interpolated {
 		for _, m := range varPattern.FindAllStringSubmatch(raw, -1) {
+			if m[1] == "" {
+				continue // a `$$` escape names no variable
+			}
 			r.Vars = append(r.Vars, m[1])
 		}
 	}

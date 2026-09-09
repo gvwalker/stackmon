@@ -52,6 +52,18 @@ func TestParse(t *testing.T) {
 			wantTag: "0.9.1", wantShape: ShapeTagOnly,
 		},
 		{
+			name: "registry port without tag",
+			raw:  "localhost:5000/app", resolved: "localhost:5000/app",
+			wantRegistry: "localhost:5000", wantRepo: "app",
+			wantTag: "latest", wantShape: ShapeTagOnly,
+		},
+		{
+			name: "registry port with tag",
+			raw:  "localhost:5000/app:1.2", resolved: "localhost:5000/app:1.2",
+			wantRegistry: "localhost:5000", wantRepo: "app",
+			wantTag: "1.2", wantShape: ShapeTagOnly,
+		},
+		{
 			name:         "interpolated with default",
 			raw:          "ghcr.io/karakeep-app/karakeep:${KARAKEEP_VERSION:-release}",
 			resolved:     "ghcr.io/karakeep-app/karakeep:release",
@@ -84,6 +96,9 @@ func TestParse(t *testing.T) {
 			if got.Interpolated != tt.wantInterp {
 				t.Errorf("Interpolated = %v, want %v", got.Interpolated, tt.wantInterp)
 			}
+			if !tt.wantInterp && len(got.Vars) != 0 {
+				t.Errorf("Vars = %v, want none for an uninterpolated ref", got.Vars)
+			}
 		})
 	}
 }
@@ -96,6 +111,18 @@ func TestParseInterpolatedRecordsVars(t *testing.T) {
 	want := []string{"A_VERSION"}
 	if len(got.Vars) != 1 || got.Vars[0] != want[0] {
 		t.Errorf("Vars = %v, want %v", got.Vars, want)
+	}
+}
+
+func TestParseVarsIgnoresEscapedDollar(t *testing.T) {
+	// Compose writes $$ for a literal dollar; it names no variable, so a ref
+	// carrying one must not report it as a dependency.
+	got, err := Parse("ghcr.io/x/y:$${NOT_A_VAR}", "ghcr.io/x/y:release")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if len(got.Vars) != 0 {
+		t.Errorf("Vars = %v, want none", got.Vars)
 	}
 }
 
