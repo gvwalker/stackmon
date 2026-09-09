@@ -1,0 +1,112 @@
+package discover
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/gvwalker/stackmon/internal/inventory"
+)
+
+// tree creates the given relative paths as empty files under a temp dir.
+func tree(t *testing.T, paths ...string) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, p := range paths {
+		full := filepath.Join(root, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("services: {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestScanFindsBothComposeNamings(t *testing.T) {
+	root := tree(t, "traefik/docker-compose.yml", "adguard/compose.yaml")
+
+	got, err := Scan([]string{root}, inventory.Inventory{})
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("found %d candidates, want 2: %+v", len(got), got)
+	}
+	// Sorted by name: adguard before traefik.
+	if got[0].Name != "adguard" || got[0].File != "compose.yaml" {
+		t.Errorf("got[0] = %+v", got[0])
+	}
+	if got[1].Name != "traefik" || got[1].File != "docker-compose.yml" {
+		t.Errorf("got[1] = %+v", got[1])
+	}
+}
+
+func TestScanMarksEnrolledCandidates(t *testing.T) {
+	root := tree(t, "traefik/docker-compose.yml", "adguard/compose.yaml")
+	inv := inventory.Inventory{Stacks: []inventory.Stack{
+		{Name: "traefik", Dir: filepath.Join(root, "traefik"), File: "docker-compose.yml"},
+	}}
+
+	got, err := Scan([]string{root}, inv)
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	byName := map[string]Candidate{}
+	for _, c := range got {
+		byName[c.Name] = c
+	}
+	if !byName["traefik"].Enrolled {
+		t.Error("traefik should be marked enrolled")
+	}
+	if byName["adguard"].Enrolled {
+		t.Error("adguard should not be marked enrolled")
+	}
+}
+
+func TestFindComposeFilePrefersComposeYaml(t *testing.T) {
+	root := tree(t, "both/compose.yaml", "both/docker-compose.yml")
+
+	got, ok := FindComposeFile(filepath.Join(root, "both"))
+	if !ok {
+		t.Fatal("FindComposeFile found nothing")
+	}
+	if got != "compose.yaml" {
+		t.Errorf("FindComposeFile = %q, want compose.yaml (Compose's own precedence)", got)
+	}
+}
+
+func TestScanSkipsDotDirectories(t *testing.T) {
+	root := tree(t, ".hidden/compose.yaml", "visible/compose.yaml")
+
+	got, err := Scan([]string{root}, inventory.Inventory{})
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "visible" {
+		t.Errorf("Scan = %+v, want only visible", got)
+	}
+}
+
+func TestScanStopsAtDepthThree(t *testing.T) {
+	root := tree(t, "a/b/c/compose.yaml", "a/b/c/d/compose.yaml")
+
+	got, err := Scan([]string{root}, inventory.Inventory{})
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "c" {
+		t.Errorf("Scan = %+v, want only the depth-3 candidate", got)
+	}
+}
+
+func TestScanIgnoresMissingRoot(t *testing.T) {
+	got, err := Scan([]string{filepath.Join(t.TempDir(), "absent")}, inventory.Inventory{})
+	if err != nil {
+		t.Fatalf("a missing root should be skipped, not fatal; got: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("Scan = %+v, want empty", got)
+	}
+}
