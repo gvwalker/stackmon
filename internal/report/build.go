@@ -223,7 +223,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 	}
 
 	if c, ok := running[st.Name+"/"+svc.Name]; ok {
-		img.RunningDigest = c.RepoDigest
+		img.RunningDigests = c.RepoDigests
 	}
 
 	if p.err != nil {

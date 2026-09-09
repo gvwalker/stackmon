@@ -198,7 +198,7 @@ func TestBuildMatchesRunningContainerByComposeLabels(t *testing.T) {
 	docker := fakeDockerProber{
 		available: true,
 		containers: []local.Container{
-			{Project: "cache", Service: "redis", RepoDigest: "sha256:old"},
+			{Project: "cache", Service: "redis", RepoDigests: []string{"sha256:old"}},
 		},
 	}
 
@@ -207,8 +207,8 @@ func TestBuildMatchesRunningContainerByComposeLabels(t *testing.T) {
 		Options{Registry: reg, Docker: docker, Concurrency: 1})
 
 	got := r.Images[0]
-	if got.RunningDigest != "sha256:old" {
-		t.Errorf("RunningDigest = %q, want sha256:old", got.RunningDigest)
+	if len(got.RunningDigests) != 1 || got.RunningDigests[0] != "sha256:old" {
+		t.Errorf("RunningDigests = %v, want [sha256:old]", got.RunningDigests)
 	}
 	if got.Status != StatusStaleDeployment {
 		t.Errorf("Status = %q, want stale-deployment", got.Status)
@@ -282,7 +282,7 @@ func TestBuildRetainsAllApplicableStatuses(t *testing.T) {
 	docker := fakeDockerProber{
 		available: true,
 		containers: []local.Container{
-			{Project: "acme", Service: "app", RepoDigest: running},
+			{Project: "acme", Service: "app", RepoDigests: []string{running}},
 		},
 	}
 
@@ -454,5 +454,42 @@ func TestBuildConstraintMatchingNoTagsBecomesUnknownRow(t *testing.T) {
 	}
 	if got.Err == "" {
 		t.Error("Err is empty; a constraint matching nothing must be reported, not silently reported as current")
+	}
+}
+
+// Docker records one RepoDigests entry per manifest digest an image has
+// ever been pulled under, and the same repository can legitimately appear
+// twice (e.g. after a retag). Comparing only the first entry produces a
+// false not-deployed verdict for a container running exactly the declared
+// digest, when that digest happens to be recorded under a later entry.
+func TestBuildTreatsDeclaredDigestAsDeployedWhenItMatchesAnyRunningEntry(t *testing.T) {
+	const firstPulled = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const declaredDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	const pinnedRef = "postgres:18-alpine@" + declaredDigest
+
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{
+			pinnedRef: {Digest: declaredDigest},
+			"index.docker.io/library/postgres:18-alpine": {Digest: declaredDigest},
+		},
+		tags: map[string][]string{"index.docker.io/library/postgres": {"18-alpine"}},
+	}
+	docker := fakeDockerProber{
+		available: true,
+		containers: []local.Container{
+			// The declared digest is the second RepoDigests entry, not the
+			// first: this is what a legitimate retag looks like.
+			{Project: "db", Service: "postgres", RepoDigests: []string{firstPulled, declaredDigest}},
+		},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "db", "postgres", pinnedRef)},
+		Options{Registry: reg, Docker: docker, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Status != StatusCurrent {
+		t.Errorf("Status = %q, want current: declared digest %q is present in RunningDigests %v",
+			got.Status, declaredDigest, got.RunningDigests)
 	}
 }

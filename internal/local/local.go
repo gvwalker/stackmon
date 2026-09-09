@@ -34,15 +34,20 @@ type Container struct {
 	Service string
 	// Image is the reference the container was started from.
 	Image string
-	// RepoDigest is the manifest digest of the image actually in use,
-	// resolved from the daemon's ImageID via GET /images/{id}/json's
-	// RepoDigests. This is a different namespace from Docker's own
-	// ImageID, which hashes the local image config JSON, not the registry
-	// manifest: comparing ImageID directly against a compose @sha256 pin
-	// or a registry.Inspect result compares two unrelated hashes. Empty
-	// when the image has no RepoDigests entry, e.g. built locally and
-	// never pushed.
-	RepoDigest string
+	// RepoDigests is every manifest digest Docker has recorded for the
+	// image actually in use, resolved from the daemon's ImageID via
+	// GET /images/{id}/json's RepoDigests. This is a different namespace
+	// from Docker's own ImageID, which hashes the local image config
+	// JSON, not the registry manifest: comparing ImageID directly
+	// against a compose @sha256 pin or a registry.Inspect result
+	// compares two unrelated hashes. Docker records one entry per
+	// manifest digest an image has ever been pulled under, and the same
+	// repository can legitimately appear more than once (e.g. a retag
+	// under a new digest); treating only the first entry as "the"
+	// digest produces false not-deployed verdicts for images running
+	// exactly the declared digest. Empty when the image has no
+	// RepoDigests entry, e.g. built locally and never pushed.
+	RepoDigests []string
 }
 
 // Prober is the surface Task 10 depends on, so that report building can be
@@ -127,64 +132,68 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 	out := make([]Container, 0, len(raw))
 	// Cached per ImageID within this call, so N containers sharing an
 	// image cost one extra request, not N.
-	digests := map[string]string{}
+	digests := map[string][]string{}
 	for _, r := range raw {
 		project, service := r.Labels[labelProject], r.Labels[labelService]
 		if project == "" || service == "" {
 			continue
 		}
 
-		digest := ""
+		var digs []string
 		if r.ImageID != "" {
 			d, ok := digests[r.ImageID]
 			if !ok {
-				d = c.repoDigest(ctx, r.ImageID)
+				d = c.repoDigests(ctx, r.ImageID)
 				digests[r.ImageID] = d
 			}
-			digest = d
+			digs = d
 		}
 
 		out = append(out, Container{
-			Project:    project,
-			Service:    service,
-			Image:      r.Image,
-			RepoDigest: digest,
+			Project:     project,
+			Service:     service,
+			Image:       r.Image,
+			RepoDigests: digs,
 		})
 	}
 	return out, nil
 }
 
-// repoDigest resolves imageID's manifest digest via GET /images/{id}/json.
+// repoDigests resolves imageID's manifest digests via GET /images/{id}/json.
 // The running-container signal is best-effort: a request failure or an
-// image with no RepoDigests entry (built locally, never pushed) yields an
-// empty string rather than failing the whole Containers call.
-func (c *Client) repoDigest(ctx context.Context, imageID string) string {
+// image with no RepoDigests entry (built locally, never pushed) yields a
+// nil slice rather than failing the whole Containers call. Docker records
+// one entry per manifest digest the image has ever been pulled under, so
+// every entry is returned, not just the first: the same repository can
+// legitimately appear twice under different digests after a retag.
+func (c *Client) repoDigests(ctx context.Context, imageID string) []string {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/v1.44/images/"+imageID+"/json", nil)
 	if err != nil {
-		return ""
+		return nil
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return ""
+		return nil
 	}
 
 	var img apiImageInspect
 	if err := json.NewDecoder(resp.Body).Decode(&img); err != nil {
-		return ""
+		return nil
 	}
 
+	out := make([]string, 0, len(img.RepoDigests))
 	for _, rd := range img.RepoDigests {
 		if i := strings.LastIndex(rd, "@"); i >= 0 {
-			return rd[i+1:]
+			out = append(out, rd[i+1:])
 		}
 	}
-	return ""
+	return out
 }
 
 // Index keys containers by "project/service" for lookup during report

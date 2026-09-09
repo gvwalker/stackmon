@@ -20,17 +20,27 @@ func TestDecidePrecedence(t *testing.T) {
 		},
 		{
 			name: "drift beats not-deployed",
-			img:  Image{DeclaredDigest: "sha256:a", RegistryDigest: "sha256:b", RunningDigest: "sha256:c"},
+			img:  Image{DeclaredDigest: "sha256:a", RegistryDigest: "sha256:b", RunningDigests: []string{"sha256:c"}},
 			want: StatusDigestDrift,
 		},
 		{
 			name: "not deployed when running differs from declared",
-			img:  Image{DeclaredDigest: "sha256:a", RegistryDigest: "sha256:a", RunningDigest: "sha256:c"},
+			img:  Image{DeclaredDigest: "sha256:a", RegistryDigest: "sha256:a", RunningDigests: []string{"sha256:c"}},
 			want: StatusNotDeployed,
 		},
 		{
+			name: "not deployed when declared digest matches no entry in a multi-entry running set",
+			img:  Image{DeclaredDigest: "sha256:a", RegistryDigest: "sha256:a", RunningDigests: []string{"sha256:c", "sha256:d"}},
+			want: StatusNotDeployed,
+		},
+		{
+			name: "deployed when declared digest is the second entry in the running set",
+			img:  Image{DeclaredDigest: "sha256:d", RegistryDigest: "sha256:d", RunningDigests: []string{"sha256:c", "sha256:d"}, DockerChecked: true},
+			want: StatusCurrent,
+		},
+		{
 			name: "stale deployment for a floating tag",
-			img:  Image{RegistryDigest: "sha256:b", RunningDigest: "sha256:c", DockerChecked: true},
+			img:  Image{RegistryDigest: "sha256:b", RunningDigests: []string{"sha256:c"}, DockerChecked: true},
 			want: StatusStaleDeployment,
 		},
 		{
@@ -40,7 +50,7 @@ func TestDecidePrecedence(t *testing.T) {
 		},
 		{
 			name: "current when everything agrees",
-			img:  Image{DeclaredDigest: "sha256:a", RegistryDigest: "sha256:a", RunningDigest: "sha256:a", DockerChecked: true},
+			img:  Image{DeclaredDigest: "sha256:a", RegistryDigest: "sha256:a", RunningDigests: []string{"sha256:a"}, DockerChecked: true},
 			want: StatusCurrent,
 		},
 		{
@@ -50,7 +60,7 @@ func TestDecidePrecedence(t *testing.T) {
 		},
 		{
 			name: "floating tag matching the registry is current",
-			img:  Image{RegistryDigest: "sha256:b", RunningDigest: "sha256:b", DockerChecked: true},
+			img:  Image{RegistryDigest: "sha256:b", RunningDigests: []string{"sha256:b"}, DockerChecked: true},
 			want: StatusCurrent,
 		},
 	}

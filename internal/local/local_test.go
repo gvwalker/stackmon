@@ -97,8 +97,8 @@ func TestContainersReadsComposeLabels(t *testing.T) {
 	if got[0].Project != "mediaserver" || got[0].Service != "radarr" {
 		t.Errorf("got[0] = %+v", got[0])
 	}
-	if got[0].RepoDigest != "sha256:bc7263170111bf1f874398dd59837800721f9c5c2d2ee34144abfc0bf6809b85" {
-		t.Errorf("RepoDigest = %q, want the manifest digest from RepoDigests, not the raw ImageID", got[0].RepoDigest)
+	if len(got[0].RepoDigests) != 1 || got[0].RepoDigests[0] != "sha256:bc7263170111bf1f874398dd59837800721f9c5c2d2ee34144abfc0bf6809b85" {
+		t.Errorf("RepoDigests = %v, want [sha256:bc7263170111bf1f874398dd59837800721f9c5c2d2ee34144abfc0bf6809b85]", got[0].RepoDigests)
 	}
 }
 
@@ -118,9 +118,9 @@ func TestContainersSkipsNonComposeContainers(t *testing.T) {
 	}
 }
 
-// The whole point: a config digest (ImageID) and a manifest digest
-// (RepoDigest) are unrelated hashes, so Containers must never hand back the
-// former under the latter's name.
+// The whole point: a config digest (ImageID) and manifest digests
+// (RepoDigests) are unrelated hashes, so Containers must never hand back
+// the former under the latter's name.
 func TestContainersResolvesRepoDigestNotRawImageID(t *testing.T) {
 	sock := fakeDocker(t, http.StatusOK, twoContainers, twoContainersRepoDigests)
 
@@ -129,13 +129,15 @@ func TestContainersResolvesRepoDigestNotRawImageID(t *testing.T) {
 		t.Fatalf("Containers error: %v", err)
 	}
 	for _, c := range got {
-		if c.RepoDigest == "" {
-			t.Errorf("%s/%s: RepoDigest empty, want a resolved manifest digest", c.Project, c.Service)
+		if len(c.RepoDigests) == 0 {
+			t.Errorf("%s/%s: RepoDigests empty, want a resolved manifest digest", c.Project, c.Service)
 			continue
 		}
-		if c.RepoDigest == "sha256:1111111111111111111111111111111111111111111111111111111111111111" ||
-			c.RepoDigest == "sha256:2222222222222222222222222222222222222222222222222222222222222222" {
-			t.Errorf("%s/%s: RepoDigest = %q, want the manifest digest, not the raw ImageID", c.Project, c.Service, c.RepoDigest)
+		for _, d := range c.RepoDigests {
+			if d == "sha256:1111111111111111111111111111111111111111111111111111111111111111" ||
+				d == "sha256:2222222222222222222222222222222222222222222222222222222222222222" {
+				t.Errorf("%s/%s: RepoDigests contains %q, want the manifest digest, not the raw ImageID", c.Project, c.Service, d)
+			}
 		}
 	}
 }
@@ -157,8 +159,8 @@ func TestContainersLeavesRepoDigestEmptyWhenImageHasNoRepoDigests(t *testing.T) 
 	if len(got) != 1 {
 		t.Fatalf("Containers = %d, want 1", len(got))
 	}
-	if got[0].RepoDigest != "" {
-		t.Errorf("RepoDigest = %q, want empty for an image with no RepoDigests", got[0].RepoDigest)
+	if len(got[0].RepoDigests) != 0 {
+		t.Errorf("RepoDigests = %v, want empty for an image with no RepoDigests", got[0].RepoDigests)
 	}
 }
 
@@ -198,15 +200,48 @@ func TestContainersErrorsOnDaemonFailure(t *testing.T) {
 
 func TestIndexKeysByProjectAndService(t *testing.T) {
 	idx := Index([]Container{
-		{Project: "mediaserver", Service: "radarr", RepoDigest: "sha256:aaa"},
-		{Project: "traefik", Service: "traefik", RepoDigest: "sha256:bbb"},
+		{Project: "mediaserver", Service: "radarr", RepoDigests: []string{"sha256:aaa"}},
+		{Project: "traefik", Service: "traefik", RepoDigests: []string{"sha256:bbb"}},
 	})
 	got, ok := idx["mediaserver/radarr"]
 	if !ok {
 		t.Fatal("index missing mediaserver/radarr")
 	}
-	if got.RepoDigest != "sha256:aaa" {
-		t.Errorf("RepoDigest = %q", got.RepoDigest)
+	if len(got.RepoDigests) != 1 || got.RepoDigests[0] != "sha256:aaa" {
+		t.Errorf("RepoDigests = %v", got.RepoDigests)
+	}
+}
+
+// Docker records one RepoDigests entry per manifest digest an image has
+// ever been pulled under; the same repository can legitimately appear
+// twice after a retag. Containers must preserve every entry, not just the
+// first, or a declared digest matching the second entry reads as
+// undeployed.
+func TestContainersPreservesEveryRepoDigestEntry(t *testing.T) {
+	const imageID = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+	body := `[{"Id":"eee","Names":["/postgres"],"Image":"postgres:18-alpine",
+   "ImageID":"` + imageID + `",
+   "Labels":{"com.docker.compose.project":"db","com.docker.compose.service":"postgres"}}]`
+	sock := fakeDocker(t, http.StatusOK, body, map[string][]string{
+		imageID: {
+			"postgres@sha256:a1d02e4bfeb5da3bdb2a3372ab0e1e8e4dc4bec8d1b3e3e6b02c4e2fca6bd2ac",
+			"postgres@sha256:d3e1620bfeb5da3bdb2a3372ab0e1e8e4dc4bec8d1b3e3e6b02c4e2fca6bd2ac",
+		},
+	})
+
+	got, err := NewWithSocket(sock).Containers(context.Background())
+	if err != nil {
+		t.Fatalf("Containers error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Containers = %d, want 1", len(got))
+	}
+	want := []string{
+		"sha256:a1d02e4bfeb5da3bdb2a3372ab0e1e8e4dc4bec8d1b3e3e6b02c4e2fca6bd2ac",
+		"sha256:d3e1620bfeb5da3bdb2a3372ab0e1e8e4dc4bec8d1b3e3e6b02c4e2fca6bd2ac",
+	}
+	if len(got[0].RepoDigests) != 2 || got[0].RepoDigests[0] != want[0] || got[0].RepoDigests[1] != want[1] {
+		t.Errorf("RepoDigests = %v, want %v (every RepoDigests entry, not just the first)", got[0].RepoDigests, want)
 	}
 }
 

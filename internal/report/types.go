@@ -33,8 +33,13 @@ type Image struct {
 	// DeclaredDigest is the digest written in the compose file, empty for a
 	// tag-only reference.
 	DeclaredDigest string `json:"declared_digest,omitempty"`
-	// RunningDigest is the digest the container is actually using.
-	RunningDigest string `json:"running_digest,omitempty"`
+	// RunningDigests is every repo digest Docker recorded for the running
+	// container's image. Docker can record more than one manifest digest
+	// for the same image (e.g. after a retag), so this is a set: a
+	// declared or registry digest matching any entry counts as deployed.
+	// Empty when no running container was found, or Docker had no
+	// RepoDigests entry for its image.
+	RunningDigests []string `json:"running_digests,omitempty"`
 	// RegistryDigest is what the registry serves for the declared reference.
 	RegistryDigest string `json:"registry_digest,omitempty"`
 	// DockerChecked records whether the daemon was reachable, so that an
@@ -120,21 +125,34 @@ func applicable(i Image) []Status {
 	if i.DeclaredDigest != "" && i.RegistryDigest != "" && i.DeclaredDigest != i.RegistryDigest {
 		out = append(out, StatusDigestDrift)
 	}
-	if i.DeclaredDigest != "" && i.RunningDigest != "" && i.DeclaredDigest != i.RunningDigest {
+	if i.DeclaredDigest != "" && len(i.RunningDigests) > 0 && !containsDigest(i.RunningDigests, i.DeclaredDigest) {
 		out = append(out, StatusNotDeployed)
 	}
 	// A floating reference has no declared digest, so a running container that
 	// differs from the registry means the pull is stale.
-	if i.DeclaredDigest == "" && i.RunningDigest != "" && i.RegistryDigest != "" && i.RunningDigest != i.RegistryDigest {
+	if i.DeclaredDigest == "" && len(i.RunningDigests) > 0 && i.RegistryDigest != "" && !containsDigest(i.RunningDigests, i.RegistryDigest) {
 		out = append(out, StatusStaleDeployment)
 	}
-	if i.DockerChecked && i.RunningDigest == "" {
+	if i.DockerChecked && len(i.RunningDigests) == 0 {
 		out = append(out, StatusNotRunning)
 	}
 	if len(out) == 0 {
 		out = append(out, StatusCurrent)
 	}
 	return out
+}
+
+// containsDigest reports whether digest appears anywhere in set. Docker
+// records one RepoDigests entry per manifest digest an image has ever been
+// pulled under, so the running or declared side of a comparison may
+// legitimately be a set rather than a single value.
+func containsDigest(set []string, digest string) bool {
+	for _, d := range set {
+		if d == digest {
+			return true
+		}
+	}
+	return false
 }
 
 // Decide returns the headline status: the most actionable one that applies.
