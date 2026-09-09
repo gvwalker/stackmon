@@ -33,7 +33,11 @@ func Detail(w io.Writer, i report.Image, rels []notes.Release) error {
 		}
 	}
 	if i.Candidate != "" {
-		if _, err := fmt.Fprintf(w, "  available: %s (%s)\n", i.Candidate, i.KindName); err != nil {
+		available := i.Candidate
+		if i.KindName != "" {
+			available = fmt.Sprintf("%s (%s)", i.Candidate, i.KindName)
+		}
+		if _, err := fmt.Fprintf(w, "  available: %s\n", available); err != nil {
 			return err
 		}
 	}

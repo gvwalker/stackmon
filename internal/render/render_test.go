@@ -131,7 +131,54 @@ func TestDetailStatesWhenNoNotesAvailable(t *testing.T) {
 	if err := Detail(&buf, img, nil); err != nil {
 		t.Fatalf("Detail error: %v", err)
 	}
-	if !strings.Contains(buf.String(), "no release notes available") {
-		t.Errorf("detail should state that notes are unavailable:\n%s", buf.String())
+	out := buf.String()
+	if !strings.Contains(out, "no release notes available") {
+		t.Errorf("detail should state that notes are unavailable:\n%s", out)
+	}
+	// An empty KindName must not leave a dangling "(...)" — the candidate
+	// line renders bare, matching table.go's detailCell guard.
+	if strings.Contains(out, "()") {
+		t.Errorf("detail rendered a dangling empty kind parenthesis:\n%s", out)
+	}
+	if !strings.Contains(out, "available: 19-alpine\n") {
+		t.Errorf("detail did not render the bare candidate when KindName is empty:\n%s", out)
+	}
+}
+
+func TestDetailShowsRevisionMoved(t *testing.T) {
+	img := report.Image{
+		Stack: "traefik", Service: "traefik", Version: "v3.7.10",
+		Status:           report.StatusDigestDrift,
+		DeclaredDigest:   "sha256:aaaa",
+		RegistryDigest:   "sha256:bbbb",
+		Revision:         "abc123",
+		RegistryRevision: "def456",
+	}
+
+	var buf bytes.Buffer
+	if err := Detail(&buf, img, nil); err != nil {
+		t.Fatalf("Detail error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "upstream revision moved: abc123 -> def456") {
+		t.Errorf("detail does not explain a revision move:\n%s", out)
+	}
+}
+
+func TestDetailStatesRevisionUnknownWhenNoLabel(t *testing.T) {
+	img := report.Image{
+		Stack: "traefik", Service: "traefik", Version: "v3.7.10",
+		Status:         report.StatusDigestDrift,
+		DeclaredDigest: "sha256:aaaa",
+		RegistryDigest: "sha256:bbbb",
+	}
+
+	var buf bytes.Buffer
+	if err := Detail(&buf, img, nil); err != nil {
+		t.Fatalf("Detail error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "no revision label, so the cause cannot be determined without pulling") {
+		t.Errorf("detail does not state the cause is undeterminable without a revision label:\n%s", out)
 	}
 }
