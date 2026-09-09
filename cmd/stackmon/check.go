@@ -45,11 +45,13 @@ func buildReport(ctx context.Context, stacks []inventory.Stack) (report.Report, 
 	return r, parsed, failures, nil
 }
 
-// printFailures surfaces per-stack parse failures on stderr. A parse failure
-// is not a stackmon failure: it is reported and the run continues.
+// printFailures surfaces per-stack parse failures on stderr with a
+// "warning:" prefix, distinct from main.go's "error:" prefix on exit 1: a
+// parse failure is not a stackmon failure, so grepping stderr must be able
+// to tell the two apart without checking the exit code.
 func printFailures(cmd *cobra.Command, failures []error) {
 	for _, f := range failures {
-		fmt.Fprintln(cmd.ErrOrStderr(), "error:", f)
+		fmt.Fprintln(cmd.ErrOrStderr(), "warning:", f)
 	}
 }
 

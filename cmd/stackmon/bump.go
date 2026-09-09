@@ -30,15 +30,17 @@ func newBumpCmd() *cobra.Command {
 				return err
 			}
 			printFailures(cmd, failures)
-			if len(parsed) == 0 {
-				return fmt.Errorf("%s did not parse; nothing to bump", args[0])
-			}
 
 			var only string
 			if len(args) == 2 {
 				only = args[1]
 			}
 
+			// Keyed by service name alone: safe only because resolve above
+			// resolved exactly one stack. A future multi-stack bump must key
+			// by stack+service, or two same-named services in different
+			// stacks would collide and one stack's plan could be applied to
+			// the other.
 			byService := map[string]compose.Service{}
 			for _, st := range parsed {
 				for _, svc := range st.Services {
