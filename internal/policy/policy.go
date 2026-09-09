@@ -95,7 +95,15 @@ func Evaluate(current string, tags []string, c Constraint) Result {
 	}
 
 	newest := matches[0]
-	if newest.ver.Compare(currentVer) <= 0 {
+	// matches[0] is already the newest by this same tie-break (see the
+	// sort above): when Version's precision loss makes newest and current
+	// compare as an exact semver tie, the lexicographically greater full
+	// tag is the newer build and must still be offered, not silently
+	// treated as "no update".
+	switch cmp := newest.ver.Compare(currentVer); {
+	case cmp < 0:
+		return res
+	case cmp == 0 && newest.tag <= current:
 		return res
 	}
 

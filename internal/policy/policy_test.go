@@ -99,16 +99,8 @@ func TestEvaluateVariantTagsCompareOnCore(t *testing.T) {
 // that share a three-component semver core once Version truncates the
 // fourth component must rank the newest build first in Ordered, not the
 // oldest -- Ordered is documented newest-first and shown to the user by
-// `show`.
-//
-// Candidate remains empty here even after this fix: Constraint.Version's
-// three-component truncation makes the current tag and the newest matching
-// tag compare as an exact semver tie (both "4.0.19"), and Candidate is only
-// offered when the newest strictly exceeds the current version. Widening
-// Version's precision to disambiguate ties like this is a separate,
-// larger change (semver.Version has no fourth component to compare against)
-// that the ruling for this finding did not ask for; this test documents
-// the current, narrower behaviour rather than asserting the wider fix.
+// `show`. See TestEvaluateOffersNewerBuildWhenVersionCoresTie for the
+// companion fix to Candidate on the same kind of tie.
 func TestEvaluateOrdersFourComponentTagsNewestFirstOnTie(t *testing.T) {
 	tags := []string{"4.0.19.2979-ls323", "4.0.19.2980-ls324"}
 	got := Evaluate("4.0.19.2979-ls323", tags, Parse("4.0.*"))
@@ -132,5 +124,36 @@ func TestEvaluateKeepsVersionlessGlobMatchesOrderedLexicographically(t *testing.
 		if got.Ordered[i] != want[i] {
 			t.Fatalf("Ordered = %v, want %v", got.Ordered, want)
 		}
+	}
+}
+
+// LIVE SUBSTANCE: Constraint.Version truncates to at most three numeric
+// components, so two linuxserver-style four-component tags whose first
+// three components agree -- "4.0.19.2979-ls323" and "4.0.19.2980-ls324" --
+// compare as an exact semver tie. Evaluate must not stop there: it already
+// breaks the same tie on the full tag string, descending, to rank Ordered
+// correctly (TestEvaluateOrdersFourComponentTagsNewestFirstOnTie); Candidate
+// must use the same tie-break, or the genuinely newer build is never
+// offered even though it sorts first.
+func TestEvaluateOffersNewerBuildWhenVersionCoresTie(t *testing.T) {
+	const current = "4.0.19.2979-ls323"
+	tags := []string{current, "4.0.19.2980-ls324"}
+	got := Evaluate(current, tags, Parse("4.0.19.*"))
+
+	if got.Candidate != "4.0.19.2980-ls324" {
+		t.Fatalf("Candidate = %q, want 4.0.19.2980-ls324 (newer build, tied truncated version)", got.Candidate)
+	}
+}
+
+// The tie-break must not offer the current tag back to itself, and must
+// not offer an older tag whose truncated version happens to tie with a
+// newer one still in the running.
+func TestEvaluateTieBreakNeverOffersCurrentOrOlderTag(t *testing.T) {
+	const current = "4.0.19.2980-ls324"
+	tags := []string{"4.0.19.2979-ls323", current}
+	got := Evaluate(current, tags, Parse("4.0.19.*"))
+
+	if got.Candidate != "" {
+		t.Fatalf("Candidate = %q, want none: current tag is already the newest build", got.Candidate)
 	}
 }
