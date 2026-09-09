@@ -157,3 +157,58 @@ func TestEvaluateTieBreakNeverOffersCurrentOrOlderTag(t *testing.T) {
 		t.Fatalf("Candidate = %q, want none: current tag is already the newest build", got.Candidate)
 	}
 }
+
+// LIVE SUBSTANCE: the tie-break used to compare full tag strings
+// lexicographically. Once a numeric segment changes digit width --
+// "999" vs "1000" -- lexicographic order stops matching build order:
+// "999" > "1000" as strings even though 1000 is the newer build. With
+// current already the newest build, the older-digit-width tag must never
+// be offered back as an "upgrade".
+func TestEvaluateTieBreakRefusesOlderBuildAcrossDigitWidthChange(t *testing.T) {
+	const current = "4.0.19.1000-ls401"
+	tags := []string{"4.0.19.999-ls400", current}
+	got := Evaluate(current, tags, Parse("4.0.19.*"))
+
+	if got.Candidate != "" {
+		t.Fatalf("Candidate = %q, want none: %q is the newer build, current is already newest", got.Candidate, current)
+	}
+}
+
+// Companion to the above: when current is the older-digit-width build, the
+// genuinely newer one must still be offered, and ranked first in Ordered.
+func TestEvaluateTieBreakOffersNewerBuildAcrossDigitWidthChange(t *testing.T) {
+	const current = "4.0.19.999-ls400"
+	const want = "4.0.19.1000-ls401"
+	tags := []string{current, want}
+	got := Evaluate(current, tags, Parse("4.0.19.*"))
+
+	if got.Candidate != want {
+		t.Fatalf("Candidate = %q, want %q", got.Candidate, want)
+	}
+	if len(got.Ordered) == 0 || got.Ordered[0] != want {
+		t.Fatalf("Ordered = %v, want %q first", got.Ordered, want)
+	}
+}
+
+// An alias that only spells the same version with an extra trailing zero
+// component ("18" vs "18.0") is not an update: the tie-break must treat it
+// as an exact tie, not as a tag with "more components" and therefore newer.
+func TestEvaluateTieBreakRefusesEqualVersionAlias(t *testing.T) {
+	got := Evaluate("18-alpine", []string{"18-alpine", "18.0-alpine"}, Infer("18-alpine"))
+	if got.Candidate != "" {
+		t.Fatalf("Candidate = %q, want none: 18.0-alpine is the same build as 18-alpine", got.Candidate)
+	}
+}
+
+// The tie-break comparator must compare a build-number suffix numerically,
+// not lexicographically: "ls99" sorts after "ls100" as raw strings even
+// though ls100 is the newer build.
+func TestEvaluateTieBreakComparesBuildSuffixNumerically(t *testing.T) {
+	const current = "4.0.19-ls99"
+	const want = "4.0.19-ls100"
+	got := Evaluate(current, []string{current, want}, Parse("4.0.19-ls*"))
+
+	if got.Candidate != want {
+		t.Fatalf("Candidate = %q, want %q (ls100 is newer than ls99, not lexicographically smaller)", got.Candidate, want)
+	}
+}
