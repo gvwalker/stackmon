@@ -11,9 +11,9 @@ import (
 )
 
 // A stack whose compose file fails to parse must not turn bump into a
-// stackmon failure (Ruling S): the same condition is a non-fatal warning in
-// check and show, and bump must read the same way so a script cannot see a
-// different exit code depending on which subcommand it ran.
+// stackmon failure: the same condition is a non-fatal warning in check and
+// show, and bump must read the same way so a script cannot see a different
+// exit code depending on which subcommand it ran.
 func TestBumpReportsUnparseableStackWithoutError(t *testing.T) {
 	dir := t.TempDir()
 	// A required interpolation variable with no default and nothing to
@@ -48,7 +48,7 @@ func TestBumpReportsUnparseableStackWithoutError(t *testing.T) {
 	cmd.SetArgs([]string{"broken", "--dry-run"})
 
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("bump returned an error for an unparseable stack, want nil (Ruling S): %v", err)
+		t.Fatalf("bump returned an error for an unparseable stack, want nil: %v", err)
 	}
 	if !strings.Contains(stderr.String(), "broken") {
 		t.Errorf("stderr should name the stack, got: %q", stderr.String())

@@ -200,10 +200,10 @@ func Diff(c Change) (string, error) {
 	if err := validateRange(c, len(data)); err != nil {
 		return "", err
 	}
-	// FINDING 3: a dry-run that lies about the pending change is worse than
-	// no dry-run. Apply the same staleness check Apply uses before
-	// rendering a preview, so a concurrent edit is refused rather than
-	// shown as a no-op or a diff of the wrong text.
+	// A dry-run that lies about the pending change is worse than no
+	// dry-run. Apply the same staleness check Apply uses before rendering
+	// a preview, so a concurrent edit is refused rather than shown as a
+	// no-op or a diff of the wrong text.
 	if got := string(data[c.Offset : c.Offset+c.Length]); got != c.Old {
 		return "", fmt.Errorf("bump: %s changed since it was checked (found %q where %q was expected); re-run check", c.Path, got, c.Old)
 	}
