@@ -307,6 +307,13 @@ Before writing, the file is re-read and the operation aborts if the target ref
 is no longer byte-identical to what `check` observed, so a concurrent edit
 cannot be clobbered.
 
+Interpolated refs such as `${KARAKEEP_VERSION:-release}` are refused. The
+substring in the compose file is the variable expression, not the version, so
+the pin actually lives in `.env` or the environment. Rewriting the compose
+file would hard-code a value that the stack's author deliberately made
+configurable. The error names the variable and the file it resolved from so
+the edit can be made in the right place.
+
 ## Testing
 
 - `imageref`, `policy`, and constraint inference carry the weight, as
