@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -38,6 +39,15 @@ type probe struct {
 	image registry.Image
 	tags  []string
 	err   error
+	// registryImage is a separate inspection of the bare tag (no digest)
+	// for a ShapeTagDigest reference: what the tag currently resolves to
+	// in the registry, as opposed to image, which describes the pinned
+	// digest. Without it, RegistryDigest/RegistryCreated/RegistryRevision
+	// would always equal the declared side by construction, so digest
+	// drift and the built/revision explanation could never fire. Zero for
+	// every other shape, where there is nothing further to check.
+	registryImage    registry.Image
+	hasRegistryImage bool
 }
 
 // Build probes every image in every stack and assembles the report. It never
@@ -92,13 +102,34 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 			p := probe{}
 			p.image, p.err = opts.Registry.Inspect(gctx, resolved)
 
+			// A tag+digest pin's single fetch above is pinned to the
+			// declared digest, so it can never see what the tag currently
+			// serves. Inspect the bare tag separately so RegistryDigest
+			// describes the registry's current state, not the declared
+			// one. Other shapes have no separate tag to check this way:
+			// a tag-only ref's fetch above is already the current tag, and
+			// a digest-only ref names no tag at all.
+			if p.err == nil && ref.Shape == imageref.ShapeTagDigest {
+				tagRef := ref.Registry + "/" + ref.Repository + ":" + ref.Tag
+				if img, err := opts.Registry.Inspect(gctx, tagRef); err == nil {
+					p.registryImage = img
+					p.hasRegistryImage = true
+				}
+			}
+
 			// Only list tags when a constraint could actually use them; a
-			// floating tag such as :latest must not trigger the call.
+			// floating tag such as :latest must not trigger the call. A
+			// failure here must degrade the row to unknown, not fall
+			// through to a silent "current": a constraint that needed
+			// tags to evaluate never actually ran.
 			if p.err == nil {
 				needsTags := constraints[resolved].Trackable
 				if needsTags {
 					repo := ref.Registry + "/" + ref.Repository
-					if tags, err := opts.Registry.Tags(gctx, repo); err == nil {
+					tags, err := opts.Registry.Tags(gctx, repo)
+					if err != nil {
+						p.err = err
+					} else {
 						p.tags = tags
 					}
 				}
@@ -182,7 +213,6 @@ func constraintFor(cfg config.Config, stack string, ref imageref.Ref) policy.Con
 	return policy.Infer(ref.Tag)
 }
 
-// assemble turns one probe into one report row.
 func assemble(st compose.Stack, svc compose.Service, p probe, running map[string]local.Container, dockerUp bool, cfg config.Config) Image {
 	img := Image{
 		Stack:          st.Name,
@@ -193,7 +223,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 	}
 
 	if c, ok := running[st.Name+"/"+svc.Name]; ok {
-		img.RunningDigest = c.ImageID
+		img.RunningDigest = c.RepoDigest
 	}
 
 	if p.err != nil {
@@ -210,6 +240,16 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 	img.Revision = p.image.Revision()
 	img.Source = p.image.Source()
 
+	// A ShapeTagDigest reference's single Inspect above is pinned to the
+	// declared digest, so it can never describe what the tag currently
+	// serves. When the separate tag-current fetch succeeded, it -- not the
+	// declared-digest fetch -- describes the registry side.
+	if p.hasRegistryImage {
+		img.RegistryDigest = p.registryImage.Digest
+		img.RegistryCreated = p.registryImage.Created
+		img.RegistryRevision = p.registryImage.Revision()
+	}
+
 	// Release notes need a GitHub repository: the label, else config.
 	img.NotesRepo = notes.RepoFromSource(img.Source)
 	if override := cfg.Image(st.Name, svc.Ref.Repository).Repo; override != "" {
@@ -223,18 +263,29 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 	}
 
 	// Re-derive the constraint now that a digest-only pin has a version.
+	glob := cfg.Image(st.Name, svc.Ref.Repository).Constraint
 	c := policy.Infer(img.Version)
-	if glob := cfg.Image(st.Name, svc.Ref.Repository).Constraint; glob != "" {
+	if glob != "" {
 		c = policy.Parse(glob)
 	}
 
-	if img.Version != "" && len(p.tags) > 0 {
+	if img.Version != "" && c.Trackable {
 		res := policy.Evaluate(img.Version, p.tags, c)
 		img.Candidate = res.Candidate
 		img.Kind = res.Kind
 		img.Ordered = res.Ordered
 		if res.Kind != policy.KindNone {
 			img.KindName = res.Kind.String()
+		}
+		// A trackable constraint that matched nothing never actually ran
+		// the check the user configured; reporting "current" here would be
+		// a wrong answer presented as authoritative.
+		if len(res.Ordered) == 0 {
+			desc := glob
+			if desc == "" {
+				desc = fmt.Sprintf("inferred from %s", img.Version)
+			}
+			img.Err = fmt.Sprintf("no tags matched the constraint (%s)", desc)
 		}
 	}
 

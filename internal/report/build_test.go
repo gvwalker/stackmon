@@ -23,6 +23,9 @@ type fakeRegistry struct {
 	inspects map[string]int
 	tagCalls map[string]int
 	err      error
+	// tagsErr, when set, is returned only by Tags, so a test can simulate a
+	// registry that serves Inspect fine but fails to list tags.
+	tagsErr error
 }
 
 func (f *fakeRegistry) Inspect(_ context.Context, ref string) (registry.Image, error) {
@@ -49,6 +52,9 @@ func (f *fakeRegistry) Tags(_ context.Context, repo string) ([]string, error) {
 		f.tagCalls = map[string]int{}
 	}
 	f.tagCalls[repo]++
+	if f.tagsErr != nil {
+		return nil, f.tagsErr
+	}
 	return f.tags[repo], nil
 }
 
@@ -185,11 +191,14 @@ func TestBuildRegistryFailureBecomesUnknownRowNotFatal(t *testing.T) {
 }
 
 func TestBuildMatchesRunningContainerByComposeLabels(t *testing.T) {
-	reg := &fakeRegistry{images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:new"}}}
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:new"}},
+		tags:   map[string][]string{"index.docker.io/library/redis": {"8.2"}},
+	}
 	docker := fakeDockerProber{
 		available: true,
 		containers: []local.Container{
-			{Project: "cache", Service: "redis", ImageID: "sha256:old"},
+			{Project: "cache", Service: "redis", RepoDigest: "sha256:old"},
 		},
 	}
 
@@ -207,7 +216,10 @@ func TestBuildMatchesRunningContainerByComposeLabels(t *testing.T) {
 }
 
 func TestBuildOmitsRunningSignalWhenDockerUnavailable(t *testing.T) {
-	reg := &fakeRegistry{images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:a"}}}
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{"redis:8.2": {Digest: "sha256:a"}},
+		tags:   map[string][]string{"index.docker.io/library/redis": {"8.2"}},
+	}
 
 	r := Build(context.Background(),
 		[]compose.Stack{stack(t, "cache", "redis", "redis:8.2")},
@@ -270,7 +282,7 @@ func TestBuildRetainsAllApplicableStatuses(t *testing.T) {
 	docker := fakeDockerProber{
 		available: true,
 		containers: []local.Container{
-			{Project: "acme", Service: "app", ImageID: running},
+			{Project: "acme", Service: "app", RepoDigest: running},
 		},
 	}
 
@@ -349,5 +361,98 @@ func TestBuildLeavesCandidateDigestEmptyWhenLookupFails(t *testing.T) {
 	}
 	if got.CandidateDigest != "" {
 		t.Errorf("CandidateDigest = %q, want empty when the lookup fails", got.CandidateDigest)
+	}
+}
+
+// A tag+digest pin's single Inspect fetches the pinned digest, which can
+// never differ from itself. Only a separate inspect of the bare tag can see
+// that the tag has moved on, which is what real digest drift is.
+func TestBuildDetectsDigestDriftWhenTagHasMoved(t *testing.T) {
+	const declaredDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const movedDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const pinnedRef = "ghcr.io/acme/app:1.0.0@" + declaredDigest
+	oldCreated := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newCreated := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{
+			pinnedRef: {
+				Digest:  declaredDigest,
+				Created: oldCreated,
+				Labels:  map[string]string{registry.LabelRevision: "rev-old"},
+			},
+			"ghcr.io/acme/app:1.0.0": {
+				Digest:  movedDigest,
+				Created: newCreated,
+				Labels:  map[string]string{registry.LabelRevision: "rev-new"},
+			},
+		},
+		tags: map[string][]string{"ghcr.io/acme/app": {"1.0.0"}},
+	}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "acme", "app", pinnedRef)},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Status != StatusDigestDrift {
+		t.Fatalf("Status = %q, want digest-drift (err: %q)", got.Status, got.Err)
+	}
+	if got.RegistryDigest != movedDigest {
+		t.Errorf("RegistryDigest = %q, want the tag's current digest %q, not the declared pin", got.RegistryDigest, movedDigest)
+	}
+	if got.Created.Equal(got.RegistryCreated) {
+		t.Errorf("Created and RegistryCreated are both %v; they must describe the declared and current images independently", got.Created)
+	}
+	if got.Revision == got.RegistryRevision {
+		t.Errorf("Revision and RegistryRevision are both %q; they must describe the declared and current images independently", got.Revision)
+	}
+}
+
+// A failed tag listing must degrade the row to unknown, not fall through to
+// a silent "current": the constraint never actually ran.
+func TestBuildTagListingFailureBecomesUnknownRow(t *testing.T) {
+	reg := &fakeRegistry{
+		images:  map[string]registry.Image{"redis:8.2": {Digest: "sha256:a"}},
+		tagsErr: errors.New("registry unreachable"),
+	}
+
+	r := Build(context.Background(), []compose.Stack{
+		stack(t, "a", "app", "redis:8.2"),
+	}, Options{Registry: reg, Docker: fakeDockerProber{}, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Status != StatusUnknown {
+		t.Errorf("Status = %q, want unknown when tag listing failed", got.Status)
+	}
+	if got.Err == "" {
+		t.Error("Err is empty; a failed tag listing must be reported, not silently reported as current")
+	}
+}
+
+// A configured constraint that matches nothing never actually ran the check
+// the user asked for; reporting "current" would be a wrong answer presented
+// as authoritative.
+func TestBuildConstraintMatchingNoTagsBecomesUnknownRow(t *testing.T) {
+	reg := &fakeRegistry{
+		images: map[string]registry.Image{"postgres:18-alpine": {Digest: "sha256:a"}},
+		tags:   map[string][]string{"index.docker.io/library/postgres": {"pg15", "pg16"}},
+	}
+	cfg := config.Config{Stacks: map[string]config.StackConfig{
+		"db": {Images: map[string]config.ImageConfig{
+			"library/postgres": {Constraint: "postgres18*"},
+		}},
+	}}
+
+	r := Build(context.Background(),
+		[]compose.Stack{stack(t, "db", "postgres", "postgres:18-alpine")},
+		Options{Registry: reg, Docker: fakeDockerProber{}, Config: cfg, Concurrency: 1})
+
+	got := r.Images[0]
+	if got.Status != StatusUnknown {
+		t.Errorf("Status = %q, want unknown when the constraint matches no tags", got.Status)
+	}
+	if got.Err == "" {
+		t.Error("Err is empty; a constraint matching nothing must be reported, not silently reported as current")
 	}
 }

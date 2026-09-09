@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -33,8 +34,15 @@ type Container struct {
 	Service string
 	// Image is the reference the container was started from.
 	Image string
-	// ImageID is the digest of the image actually in use.
-	ImageID string
+	// RepoDigest is the manifest digest of the image actually in use,
+	// resolved from the daemon's ImageID via GET /images/{id}/json's
+	// RepoDigests. This is a different namespace from Docker's own
+	// ImageID, which hashes the local image config JSON, not the registry
+	// manifest: comparing ImageID directly against a compose @sha256 pin
+	// or a registry.Inspect result compares two unrelated hashes. Empty
+	// when the image has no RepoDigests entry, e.g. built locally and
+	// never pushed.
+	RepoDigest string
 }
 
 // Prober is the surface Task 10 depends on, so that report building can be
@@ -85,6 +93,12 @@ type apiContainer struct {
 	Labels  map[string]string `json:"Labels"`
 }
 
+// apiImageInspect mirrors the fields stackmon reads from
+// GET /images/{id}/json.
+type apiImageInspect struct {
+	RepoDigests []string `json:"RepoDigests"`
+}
+
 // Containers lists running containers started by Compose. Containers without
 // Compose labels are omitted, since they cannot be matched to a service.
 func (c *Client) Containers(ctx context.Context) ([]Container, error) {
@@ -111,19 +125,66 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 	}
 
 	out := make([]Container, 0, len(raw))
+	// Cached per ImageID within this call, so N containers sharing an
+	// image cost one extra request, not N.
+	digests := map[string]string{}
 	for _, r := range raw {
 		project, service := r.Labels[labelProject], r.Labels[labelService]
 		if project == "" || service == "" {
 			continue
 		}
+
+		digest := ""
+		if r.ImageID != "" {
+			d, ok := digests[r.ImageID]
+			if !ok {
+				d = c.repoDigest(ctx, r.ImageID)
+				digests[r.ImageID] = d
+			}
+			digest = d
+		}
+
 		out = append(out, Container{
-			Project: project,
-			Service: service,
-			Image:   r.Image,
-			ImageID: r.ImageID,
+			Project:    project,
+			Service:    service,
+			Image:      r.Image,
+			RepoDigest: digest,
 		})
 	}
 	return out, nil
+}
+
+// repoDigest resolves imageID's manifest digest via GET /images/{id}/json.
+// The running-container signal is best-effort: a request failure or an
+// image with no RepoDigests entry (built locally, never pushed) yields an
+// empty string rather than failing the whole Containers call.
+func (c *Client) repoDigest(ctx context.Context, imageID string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/v1.44/images/"+imageID+"/json", nil)
+	if err != nil {
+		return ""
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var img apiImageInspect
+	if err := json.NewDecoder(resp.Body).Decode(&img); err != nil {
+		return ""
+	}
+
+	for _, rd := range img.RepoDigests {
+		if i := strings.LastIndex(rd, "@"); i >= 0 {
+			return rd[i+1:]
+		}
+	}
+	return ""
 }
 
 // Index keys containers by "project/service" for lookup during report

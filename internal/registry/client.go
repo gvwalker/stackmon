@@ -50,6 +50,14 @@ func New() *Client {
 	return &Client{keychain: authn.DefaultKeychain}
 }
 
+// newClient builds a Client with an explicit keychain. It exists so tests
+// can use authn.Anonymous instead of depending on the machine's Docker
+// credential configuration, which a misconfigured or slow credential
+// helper could otherwise make fail or hang for unrelated reasons.
+func newClient(kc authn.Keychain) *Client {
+	return &Client{keychain: kc}
+}
+
 func (c *Client) options(ctx context.Context) []remote.Option {
 	return []remote.Option{
 		remote.WithContext(ctx),
@@ -70,15 +78,17 @@ func (c *Client) Inspect(ctx context.Context, ref string) (Image, error) {
 		return Image{}, fmt.Errorf("registry: fetching %s: %w", ref, err)
 	}
 
-	// Image() resolves a manifest list to the matching platform for us.
+	// desc.Digest is what was actually fetched: the index digest when ref
+	// names a multi-platform index, matching what `docker pull` prints and
+	// what a compose @sha256 pin and RepoDigests hold. Image() below
+	// resolves the index to one platform's child purely to read its config
+	// blob; reporting that child's digest instead would make every
+	// multi-arch digest-pinned image look permanently drifted, and would
+	// have bump rewrite a portable multi-arch pin into a platform-specific
+	// one.
 	img, err := desc.Image()
 	if err != nil {
 		return Image{}, fmt.Errorf("registry: resolving image %s: %w", ref, err)
-	}
-
-	digest, err := img.Digest()
-	if err != nil {
-		return Image{}, fmt.Errorf("registry: digesting %s: %w", ref, err)
 	}
 
 	cf, err := img.ConfigFile()
@@ -87,7 +97,7 @@ func (c *Client) Inspect(ctx context.Context, ref string) (Image, error) {
 	}
 
 	return Image{
-		Digest:  digest.String(),
+		Digest:  desc.Digest.String(),
 		Created: cf.Created.Time,
 		Labels:  cf.Config.Labels,
 	}, nil
