@@ -91,5 +91,14 @@ func newBumpCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print a unified diff instead of writing")
+	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeEnrolledStacks(cmd, args, toComplete)
+		}
+		if len(args) == 1 {
+			return completeStackServices(cmd, args[0], toComplete)
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 	return cmd
 }

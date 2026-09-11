@@ -102,5 +102,6 @@ func newCheckCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the report as JSON")
 	cmd.Flags().BoolVar(&failOnUpdate, "fail-on-update", false, "exit 2 when an update is available")
 	cmd.Flags().BoolVar(&driftToo, "drift-too", false, "with --fail-on-update, also exit 2 on digest drift")
+	cmd.ValidArgsFunction = completeEnrolledStacks
 	return cmd
 }

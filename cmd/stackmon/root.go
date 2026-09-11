@@ -33,6 +33,8 @@ func newRootCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&flagConfig, "config", "", "path to config.toml (default ~/.config/stackmon/config.toml)")
 	cmd.PersistentFlags().StringVar(&flagInventory, "inventory", "", "path to inventory.json (default ~/.local/state/stackmon/inventory.json)")
+	_ = cmd.MarkPersistentFlagFilename("config", "toml")
+	_ = cmd.MarkPersistentFlagFilename("inventory", "json")
 
 	cmd.AddCommand(newDiscoverCmd(), newEnrollCmd(), newUnenrollCmd(), newInventoryCmd(), newCheckCmd(), newShowCmd(), newBumpCmd())
 	return cmd

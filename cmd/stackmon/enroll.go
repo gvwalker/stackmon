@@ -51,7 +51,7 @@ func newEnrollCmd() *cobra.Command {
 }
 
 func newUnenrollCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "unenroll <name>",
 		Short: "Remove a stack from the inventory",
 		Args:  cobra.ExactArgs(1),
@@ -70,6 +70,13 @@ func newUnenrollCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeEnrolledStacks(cmd, args, toComplete)
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return cmd
 }
 
 func newInventoryCmd() *cobra.Command {

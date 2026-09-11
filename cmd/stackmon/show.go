@@ -49,5 +49,11 @@ func newShowCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&token, "github-token", "", "GitHub token for release notes (raises the rate limit)")
+	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) == 0 {
+			return completeEnrolledStacks(cmd, args, toComplete)
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 	return cmd
 }
