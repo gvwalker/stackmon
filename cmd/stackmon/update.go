@@ -26,7 +26,7 @@ func newUpdateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !newer {
+			if !newer && version != "dev" {
 				fmt.Fprintf(out, "stackmon %s is already up to date\n", version)
 				return nil
 			}
