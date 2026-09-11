@@ -17,20 +17,10 @@ func newBumpCmd() *cobra.Command {
 		Short: "Rewrite a stack's image pins to the newest available",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			inv, _, err := loadInventory()
+			r, parsed, err := loadStackReport(cmd, args[:1])
 			if err != nil {
 				return err
 			}
-			stacks, missing, err := resolve(inv, args[:1])
-			if err != nil {
-				return err
-			}
-			r, parsed, failures, err := buildReport(cmd.Context(), stacks)
-			if err != nil {
-				return err
-			}
-			printFailures(cmd, missing)
-			printFailures(cmd, failures)
 
 			var only string
 			if len(args) == 2 {

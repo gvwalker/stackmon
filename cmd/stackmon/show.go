@@ -15,20 +15,10 @@ func newShowCmd() *cobra.Command {
 		Short: "Show per-image detail and release notes for one stack",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			inv, _, err := loadInventory()
+			r, _, err := loadStackReport(cmd, args)
 			if err != nil {
 				return err
 			}
-			stacks, missing, err := resolve(inv, args)
-			if err != nil {
-				return err
-			}
-			r, _, failures, err := buildReport(cmd.Context(), stacks)
-			if err != nil {
-				return err
-			}
-			printFailures(cmd, missing)
-			printFailures(cmd, failures)
 
 			fetcher := notes.New(token)
 			for _, img := range r.Images {
