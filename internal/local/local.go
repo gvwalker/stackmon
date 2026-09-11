@@ -1,5 +1,5 @@
 // Package local reads running-container state from the Docker Engine API over
-// its unix socket. It is one of only three packages permitted to perform I/O
+// its unix socket. It is one of only four packages permitted to perform I/O
 // against the outside world.
 //
 // The Engine API is queried directly rather than through the official client

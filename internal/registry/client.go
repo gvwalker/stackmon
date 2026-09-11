@@ -1,4 +1,4 @@
-// Package registry talks to container registries. It is one of only three
+// Package registry talks to container registries. It is one of only four
 // packages permitted to perform I/O against the outside world.
 package registry
 
