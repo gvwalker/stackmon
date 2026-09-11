@@ -26,6 +26,9 @@ func newEnrollCmdWithProber(prober local.Prober) *cobra.Command {
 		Short: "Add a stack to the inventory",
 		Args: func(_ *cobra.Command, args []string) error {
 			if running != "" {
+				if name != "" {
+					return fmt.Errorf("--name cannot be combined with --running")
+				}
 				if len(args) != 0 {
 					return fmt.Errorf("--running cannot be combined with a path")
 				}

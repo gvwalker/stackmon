@@ -95,3 +95,26 @@ func TestEnrollRunningRejectsPathArgument(t *testing.T) {
 		t.Fatal("enroll with path and --running = nil error, want exclusive argument error")
 	}
 }
+
+func TestEnrollRunningRejectsNameOverride(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCLIPaths(t, filepath.Join(t.TempDir(), "missing.toml"), filepath.Join(t.TempDir(), "inventory.json"))
+
+	cmd := newEnrollCmdWithProber(fakeProber{
+		available: true,
+		containers: []local.Container{{
+			Project:            "media",
+			ProjectWorkingDir:  dir,
+			ProjectConfigFiles: filepath.Join(dir, "compose.yaml"),
+			Service:            "web",
+		}},
+	})
+	cmd.SetArgs([]string{"--running", "media", "--name", "alias"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--name cannot be combined with --running") {
+		t.Fatalf("enroll with --running and --name error = %v, want explicit rejection", err)
+	}
+}
