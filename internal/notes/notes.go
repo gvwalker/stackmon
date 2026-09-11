@@ -1,4 +1,4 @@
-// Package notes fetches release notes from GitHub. It is one of only three
+// Package notes fetches release notes from GitHub. It is one of only four
 // packages permitted to perform I/O against the outside world.
 package notes
 

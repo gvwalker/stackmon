@@ -28,6 +28,7 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "stackmon",
 		Short:         "Report outdated container images across enrolled Compose stacks",
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -36,7 +37,7 @@ func newRootCmd() *cobra.Command {
 	_ = cmd.MarkPersistentFlagFilename("config", "toml")
 	_ = cmd.MarkPersistentFlagFilename("inventory", "json")
 
-	cmd.AddCommand(newDiscoverCmd(), newEnrollCmd(), newUnenrollCmd(), newInventoryCmd(), newCheckCmd(), newShowCmd(), newBumpCmd())
+	cmd.AddCommand(newDiscoverCmd(), newEnrollCmd(), newUnenrollCmd(), newInventoryCmd(), newCheckCmd(), newShowCmd(), newBumpCmd(), newUpdateCmd(), newWhatsNewCmd())
 	return cmd
 }
 
