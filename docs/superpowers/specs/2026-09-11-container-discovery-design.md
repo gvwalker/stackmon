@@ -1,7 +1,7 @@
 # Container Discovery Design
 
 Date: 2026-09-11
-Status: Proposed
+Status: Approved
 
 ## Goal
 
