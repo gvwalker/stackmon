@@ -6,7 +6,7 @@ It is read-only by default. Only `stackmon bump` changes a Compose file, and sta
 
 ## Features
 
-- Discover Compose stacks under configured roots, then explicitly enroll only the stacks to monitor.
+- Discover Compose stacks under configured roots and from currently running Compose containers, then explicitly enroll only the stacks to monitor.
 - Check declared image references against their registries and, when accessible, against the Docker daemon's running containers.
 - Identify version updates, digest drift, stale deployments, undeployed changes, stopped services, and per-image probe failures.
 - Infer safe version candidates from semantic-version tags while preserving tag prefixes and variants; use explicit glob constraints for opaque tags such as `pg15`.
@@ -43,7 +43,7 @@ go install github.com/gvwalker/stackmon/cmd/stackmon@latest
 
 ## Quick start
 
-1. Create the configuration directory and choose roots that contain Compose stacks:
+1. Create the configuration directory and optionally choose roots that contain Compose stacks:
 
    ```sh
    mkdir -p ~/.config/stackmon
@@ -52,16 +52,17 @@ go install github.com/gvwalker/stackmon/cmd/stackmon@latest
    EOF
    ```
 
-2. Find Compose files below those roots. Discovery does not monitor a stack by itself:
+2. Find Compose files below those roots and inspect running Compose projects. Discovery does not monitor a stack by itself:
 
    ```sh
    stackmon discover
    ```
 
-3. Enroll the stack you want to monitor. The path is the stack directory, not the Compose file:
+3. Enroll the stack you want to monitor. Use a path for a stopped or filesystem-only stack, or a Compose project name for a running stack:
 
    ```sh
    stackmon enroll /srv/compose/traefik
+   stackmon enroll --running media
    ```
 
 4. Inspect all enrolled stacks:
@@ -86,18 +87,19 @@ The inventory is stored at `~/.local/state/stackmon/inventory.json`. Treat it as
 stackmon discover
 ```
 
-Recursively lists Compose stacks found below `roots`, marking each as `available` or `enrolled`. It searches to a depth of three, skips dot-directories, and uses Compose filename precedence: `compose.yaml`, `compose.yml`, `docker-compose.yaml`, then `docker-compose.yml`.
+Lists Compose stacks found below configured `roots` and in currently running Compose containers, marking each as `available` or `enrolled`. Filesystem discovery searches to a depth of three, skips dot-directories, and uses Compose filename precedence: `compose.yaml`, `compose.yml`, `docker-compose.yaml`, then `docker-compose.yml`. Docker-only candidates are shown even when no roots are configured. If Docker is unavailable, root discovery still works.
 
 ### `enroll`, `unenroll`, and `inventory list`
 
 ```sh
 stackmon enroll /srv/compose/traefik
 stackmon enroll /srv/compose/another-traefik --name edge-traefik
+stackmon enroll --running media
 stackmon inventory list
 stackmon unenroll traefik
 ```
 
-An enrolled stack is identified by its name and absolute Compose path. The default name is the directory basename. If two paths have the same basename, provide `--name` for one of them.
+`enroll --running <project>` resolves the Compose project's working directory and Compose file from labels on its running containers. It requires Docker and cannot be combined with a path. An enrolled stack is identified by its name and absolute Compose path. The default name for path enrollment is the directory basename; use `--name` when two paths have the same basename.
 
 ### `check`
 
@@ -157,9 +159,8 @@ stackmon completion fish >~/.config/fish/completions/stackmon.fish
 
 Completion dynamically suggests enrolled stack names and, for `bump`, services in the selected stack.
 
-## Configuration
+By default stackmon loads `~/.config/stackmon/config.toml`. A missing configuration file is valid when stacks are enrolled directly by path or discovered from running Compose containers. `roots` is optional; it limits only filesystem discovery. Override the path with `--config`; override the inventory path with `--inventory`.
 
-By default stackmon loads `~/.config/stackmon/config.toml`. A missing configuration file is valid when stacks are enrolled directly by path. Override the path with `--config`; override the inventory path with `--inventory`.
 
 ```toml
 # Roots used only by `discover`.
@@ -196,9 +197,8 @@ Each image gets one primary status. When several conditions apply, stackmon prio
 
 A Docker socket is optional. If it is absent or unreadable, stackmon produces a file-and-registry report without running-container comparisons and states that limitation in the output. Docker credentials are read from `~/.docker/config.json`, including configured credential helpers; stackmon stores no registry credentials.
 
-## Operational model and safety
-
-- Monitoring begins only after explicit enrollment. A new directory under a configured root never silently joins checks.
+- Monitoring begins only after explicit enrollment. A new directory under a configured root or a newly observed running container never silently joins checks.
+- `discover` combines configured-root results with running Compose projects when Docker is available. A Docker-only stack may be enrolled with `enroll --running <project>`.
 - Stack paths may sit outside discovery roots; roots are a discovery convenience, not an enrollment restriction.
 - Registry requests are concurrent up to `concurrency`, and repeated image references are deduplicated within a check.
 - Floating or opaque tags are tracked for digest changes unless a safe candidate constraint exists. Stackmon does not guess a major-version migration.

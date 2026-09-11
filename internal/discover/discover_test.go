@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gvwalker/stackmon/internal/inventory"
+	"github.com/gvwalker/stackmon/internal/local"
 )
 
 // tree creates the given relative paths as empty files under a temp dir.
@@ -145,5 +146,58 @@ func TestScanFindsComposeFileDirectlyInRoot(t *testing.T) {
 	}
 	if got[0].Dir != root {
 		t.Errorf("Dir = %q, want the root itself %q", got[0].Dir, root)
+	}
+}
+
+func TestDockerCandidatesFindsRunningComposeStack(t *testing.T) {
+	root := tree(t, "media/compose.yaml")
+	dir := filepath.Join(root, "media")
+	containers := []local.Container{
+		{Project: "media", ProjectWorkingDir: dir, ProjectConfigFiles: filepath.Join(dir, "compose.yaml"), Service: "web"},
+		{Project: "media", ProjectWorkingDir: dir, ProjectConfigFiles: filepath.Join(dir, "compose.yaml"), Service: "db"},
+	}
+
+	got := DockerCandidates(containers, inventory.Inventory{})
+	if len(got) != 1 {
+		t.Fatalf("DockerCandidates = %d candidates, want 1: %+v", len(got), got)
+	}
+	if got[0].Name != "media" || got[0].Dir != dir || got[0].File != "compose.yaml" {
+		t.Errorf("DockerCandidates = %+v", got[0])
+	}
+	if got[0].Project != "media" {
+		t.Errorf("Project = %q, want media", got[0].Project)
+	}
+}
+
+func TestMergeDeduplicatesRootAndDockerCandidates(t *testing.T) {
+	root := tree(t, "media/compose.yaml")
+	dir := filepath.Join(root, "media")
+	rootCandidates, err := Scan([]string{root}, inventory.Inventory{})
+	if err != nil {
+		t.Fatalf("Scan error: %v", err)
+	}
+	dockerCandidates := DockerCandidates([]local.Container{
+		{Project: "media", ProjectWorkingDir: dir, ProjectConfigFiles: filepath.Join(dir, "compose.yaml"), Service: "web"},
+	}, inventory.Inventory{})
+
+	got := Merge(inventory.Inventory{}, rootCandidates, dockerCandidates)
+	if len(got) != 1 {
+		t.Fatalf("Merge = %d candidates, want 1: %+v", len(got), got)
+	}
+	if got[0].Dir != dir || got[0].File != "compose.yaml" {
+		t.Errorf("Merge = %+v", got[0])
+	}
+}
+
+func TestDockerCandidatesIgnoresIncompleteProjects(t *testing.T) {
+	dir := t.TempDir()
+	tests := []local.Container{
+		{Project: "relative", ProjectWorkingDir: "relative", ProjectConfigFiles: "relative/compose.yaml", Service: "web"},
+		{Project: "missing-dir", ProjectWorkingDir: filepath.Join(dir, "missing"), ProjectConfigFiles: filepath.Join(dir, "missing", "compose.yaml"), Service: "web"},
+		{Project: "missing-label", ProjectConfigFiles: filepath.Join(dir, "compose.yaml"), Service: "web"},
+	}
+
+	if got := DockerCandidates(tests, inventory.Inventory{}); len(got) != 0 {
+		t.Errorf("DockerCandidates = %+v, want no candidates", got)
 	}
 }

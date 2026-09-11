@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gvwalker/stackmon/internal/inventory"
+	"github.com/gvwalker/stackmon/internal/local"
 )
 
 // MaxDepth is how far below a root a compose file may be found.
@@ -27,6 +28,7 @@ var ComposeFilenames = []string{
 // Candidate is a stack that could be, or already is, enrolled.
 type Candidate struct {
 	Name     string
+	Project  string
 	Dir      string
 	File     string
 	Enrolled bool
@@ -42,15 +44,10 @@ func FindComposeFile(dir string) (string, bool) {
 	return "", false
 }
 
-// Scan walks each root looking for compose files, marking those already in
-// inv as enrolled. Roots that do not exist are skipped, since a drive may
-// simply not be mounted. Results are sorted by name.
+// Scan walks each root looking for compose files. Roots that do not exist are
+// skipped, since a drive may simply not be mounted. Results are sorted by name.
 func Scan(roots []string, inv inventory.Inventory) ([]Candidate, error) {
-	enrolled := make(map[string]bool, len(inv.Stacks))
-	for _, s := range inv.Stacks {
-		enrolled[filepath.Clean(s.Dir)] = true
-	}
-
+	enrolled := enrolledDirs(inv)
 	var out []Candidate
 	seen := map[string]bool{}
 
@@ -84,14 +81,17 @@ func Scan(roots []string, inv inventory.Inventory) ([]Candidate, error) {
 				return fs.SkipDir
 			}
 
-			if file, ok := FindComposeFile(path); ok && !seen[path] {
-				seen[path] = true
-				out = append(out, Candidate{
-					Name:     filepath.Base(path),
-					Dir:      path,
-					File:     file,
-					Enrolled: enrolled[path],
-				})
+			if file, ok := FindComposeFile(path); ok {
+				dir := filepath.Clean(path)
+				if !seen[dir] {
+					seen[dir] = true
+					out = append(out, Candidate{
+						Name:     filepath.Base(dir),
+						Dir:      dir,
+						File:     file,
+						Enrolled: enrolled[dir],
+					})
+				}
 			}
 			return nil
 		})
@@ -99,12 +99,79 @@ func Scan(roots []string, inv inventory.Inventory) ([]Candidate, error) {
 			return nil, err
 		}
 	}
-
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Name != out[j].Name {
-			return out[i].Name < out[j].Name
-		}
-		return out[i].Dir < out[j].Dir
-	})
+	sortCandidates(out)
 	return out, nil
+}
+
+// DockerCandidates returns stacks represented by running Compose containers.
+// A candidate is emitted only when Compose labels identify an absolute working
+// directory, at least one config file, and a compose file currently exists
+// there.
+func DockerCandidates(containers []local.Container, inv inventory.Inventory) []Candidate {
+	enrolled := enrolledDirs(inv)
+	seenProjects := map[string]bool{}
+	out := make([]Candidate, 0, len(containers))
+	for _, c := range containers {
+		if c.Project == "" || seenProjects[c.Project] {
+			continue
+		}
+		if c.ProjectWorkingDir == "" || !filepath.IsAbs(c.ProjectWorkingDir) || strings.TrimSpace(c.ProjectConfigFiles) == "" {
+			continue
+		}
+		seenProjects[c.Project] = true
+		dir := filepath.Clean(c.ProjectWorkingDir)
+		file, ok := FindComposeFile(dir)
+		if !ok {
+			continue
+		}
+		out = append(out, Candidate{
+			Name:     c.Project,
+			Project:  c.Project,
+			Dir:      dir,
+			File:     file,
+			Enrolled: enrolled[dir],
+		})
+	}
+	sortCandidates(out)
+	return out
+}
+
+// Merge combines candidate sources, keeping one candidate per directory.
+func Merge(inv inventory.Inventory, sources ...[]Candidate) []Candidate {
+	enrolled := enrolledDirs(inv)
+	byDir := map[string]Candidate{}
+	for _, source := range sources {
+		for _, candidate := range source {
+			dir := filepath.Clean(candidate.Dir)
+			if _, exists := byDir[dir]; exists {
+				continue
+			}
+			candidate.Dir = dir
+			candidate.Enrolled = enrolled[dir]
+			byDir[dir] = candidate
+		}
+	}
+	out := make([]Candidate, 0, len(byDir))
+	for _, candidate := range byDir {
+		out = append(out, candidate)
+	}
+	sortCandidates(out)
+	return out
+}
+
+func enrolledDirs(inv inventory.Inventory) map[string]bool {
+	enrolled := make(map[string]bool, len(inv.Stacks))
+	for _, s := range inv.Stacks {
+		enrolled[filepath.Clean(s.Dir)] = true
+	}
+	return enrolled
+}
+
+func sortCandidates(candidates []Candidate) {
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Name != candidates[j].Name {
+			return candidates[i].Name < candidates[j].Name
+		}
+		return candidates[i].Dir < candidates[j].Dir
+	})
 }

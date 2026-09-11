@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"text/tabwriter"
@@ -10,23 +11,67 @@ import (
 
 	"github.com/gvwalker/stackmon/internal/discover"
 	"github.com/gvwalker/stackmon/internal/inventory"
+	"github.com/gvwalker/stackmon/internal/local"
 )
 
 func newEnrollCmd() *cobra.Command {
-	var name string
+	return newEnrollCmdWithProber(local.New())
+}
+
+func newEnrollCmdWithProber(prober local.Prober) *cobra.Command {
+	var name, running string
 
 	cmd := &cobra.Command{
-		Use:   "enroll <path>",
+		Use:   "enroll [<path>]",
 		Short: "Add a stack to the inventory",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := filepath.Abs(args[0])
-			if err != nil {
-				return err
+		Args: func(_ *cobra.Command, args []string) error {
+			if running != "" {
+				if name != "" {
+					return fmt.Errorf("--name cannot be combined with --running")
+				}
+				if len(args) != 0 {
+					return fmt.Errorf("--running cannot be combined with a path")
+				}
+				return nil
 			}
-			file, ok := discover.FindComposeFile(dir)
-			if !ok {
-				return fmt.Errorf("no compose file in %s (looked for %v)", dir, discover.ComposeFilenames)
+			if len(args) != 1 {
+				return fmt.Errorf("requires exactly one path unless --running is set")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var dir, file, defaultName string
+			if running != "" {
+				if !prober.Available() {
+					return fmt.Errorf("Docker is unavailable; cannot find running Compose project %q", running)
+				}
+				containers, err := prober.Containers(context.Background())
+				if err != nil {
+					return err
+				}
+				var candidate *discover.Candidate
+				for _, c := range discover.DockerCandidates(containers, inventory.Inventory{}) {
+					if c.Project == running {
+						candidate = &c
+						break
+					}
+				}
+				if candidate == nil {
+					return fmt.Errorf("running Compose project %q was not found", running)
+				}
+				dir, file, defaultName = candidate.Dir, candidate.File, candidate.Name
+			} else {
+				var err error
+				dir, err = filepath.Abs(args[0])
+				if err != nil {
+					return err
+				}
+				var ok bool
+				file, ok = discover.FindComposeFile(dir)
+				if !ok {
+					return fmt.Errorf("no compose file in %s (looked for %v)", dir, discover.ComposeFilenames)
+				}
+				defaultName = filepath.Base(dir)
 			}
 
 			inv, path, err := loadInventory()
@@ -34,7 +79,7 @@ func newEnrollCmd() *cobra.Command {
 				return err
 			}
 			if name == "" {
-				name = filepath.Base(dir)
+				name = defaultName
 			}
 			if err := inv.Add(inventory.Stack{Name: name, Dir: dir, File: file, Enrolled: time.Now().UTC()}); err != nil {
 				return err
@@ -47,6 +92,7 @@ func newEnrollCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "override the stack name (default: directory basename)")
+	cmd.Flags().StringVar(&running, "running", "", "enroll a running Compose project by project name")
 	return cmd
 }
 

@@ -24,14 +24,18 @@ const DefaultSocket = "/var/run/docker.sock"
 
 // Compose sets these labels on every container it starts.
 const (
-	labelProject = "com.docker.compose.project"
-	labelService = "com.docker.compose.service"
+	labelProject            = "com.docker.compose.project"
+	labelProjectWorkingDir  = "com.docker.compose.project.working_dir"
+	labelProjectConfigFiles = "com.docker.compose.project.config_files"
+	labelService            = "com.docker.compose.service"
 )
 
 // Container is one running container started by Compose.
 type Container struct {
-	Project string
-	Service string
+	Project            string
+	ProjectWorkingDir  string
+	ProjectConfigFiles string
+	Service            string
 	// Image is the reference the container was started from.
 	Image string
 	// RepoDigests is every manifest digest Docker has recorded for the
@@ -150,10 +154,12 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 		}
 
 		out = append(out, Container{
-			Project:     project,
-			Service:     service,
-			Image:       r.Image,
-			RepoDigests: digs,
+			Project:            project,
+			ProjectWorkingDir:  r.Labels[labelProjectWorkingDir],
+			ProjectConfigFiles: r.Labels[labelProjectConfigFiles],
+			Service:            service,
+			Image:              r.Image,
+			RepoDigests:        digs,
 		})
 	}
 	return out, nil

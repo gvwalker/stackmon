@@ -69,11 +69,11 @@ func fakeDockerCounting(t *testing.T, status int, containersBody string, repoDig
 const twoContainers = `[
   {"Id":"aaa","Names":["/radarr"],"Image":"lscr.io/linuxserver/radarr:latest",
    "ImageID":"sha256:1111111111111111111111111111111111111111111111111111111111111111",
-   "Labels":{"com.docker.compose.project":"mediaserver","com.docker.compose.service":"radarr"}},
+   "Labels":{"com.docker.compose.project":"mediaserver","com.docker.compose.project.working_dir":"/srv/compose/media","com.docker.compose.project.config_files":"/srv/compose/media/compose.yaml","com.docker.compose.service":"radarr"}},
   {"Id":"bbb","Names":["/traefik"],"Image":"traefik",
    "ImageID":"sha256:2222222222222222222222222222222222222222222222222222222222222222",
    "Labels":{"com.docker.compose.project":"traefik","com.docker.compose.service":"traefik"}}
-]`
+ ]`
 
 var twoContainersRepoDigests = map[string][]string{
 	"sha256:1111111111111111111111111111111111111111111111111111111111111111": {
@@ -99,6 +99,12 @@ func TestContainersReadsComposeLabels(t *testing.T) {
 	}
 	if len(got[0].RepoDigests) != 1 || got[0].RepoDigests[0] != "sha256:bc7263170111bf1f874398dd59837800721f9c5c2d2ee34144abfc0bf6809b85" {
 		t.Errorf("RepoDigests = %v, want [sha256:bc7263170111bf1f874398dd59837800721f9c5c2d2ee34144abfc0bf6809b85]", got[0].RepoDigests)
+	}
+	if got[0].ProjectWorkingDir != "/srv/compose/media" {
+		t.Errorf("ProjectWorkingDir = %q, want /srv/compose/media", got[0].ProjectWorkingDir)
+	}
+	if got[0].ProjectConfigFiles != "/srv/compose/media/compose.yaml" {
+		t.Errorf("ProjectConfigFiles = %q, want /srv/compose/media/compose.yaml", got[0].ProjectConfigFiles)
 	}
 }
 

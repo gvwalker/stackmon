@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gvwalker/stackmon/internal/inventory"
+	"github.com/gvwalker/stackmon/internal/local"
 )
 
 func TestResolveReturnsEnrolledStack(t *testing.T) {
@@ -53,5 +54,67 @@ func TestResolveReportsMissingStackPathAsWarningNotError(t *testing.T) {
 func TestResolveUnknownNameErrors(t *testing.T) {
 	if _, _, err := resolve(inventory.Inventory{}, []string{"nope"}); err == nil {
 		t.Fatal("resolve of an unenrolled name = nil error, want error")
+	}
+}
+
+func TestEnrollRunningProject(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	invPath := filepath.Join(t.TempDir(), "inventory.json")
+	withCLIPaths(t, filepath.Join(t.TempDir(), "missing.toml"), invPath)
+
+	cmd := newEnrollCmdWithProber(fakeProber{
+		available: true,
+		containers: []local.Container{{
+			Project:            "media",
+			ProjectWorkingDir:  dir,
+			ProjectConfigFiles: filepath.Join(dir, "compose.yaml"),
+			Service:            "web",
+		}},
+	})
+	cmd.SetArgs([]string{"--running", "media"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("enroll --running error: %v", err)
+	}
+
+	inv, err := inventory.Load(invPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inv.Stacks) != 1 || inv.Stacks[0].Name != "media" || inv.Stacks[0].Dir != dir || inv.Stacks[0].File != "compose.yaml" {
+		t.Fatalf("inventory = %+v, want enrolled running project", inv.Stacks)
+	}
+}
+
+func TestEnrollRunningRejectsPathArgument(t *testing.T) {
+	cmd := newEnrollCmdWithProber(fakeProber{available: true})
+	cmd.SetArgs([]string{"/tmp/stack", "--running", "media"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("enroll with path and --running = nil error, want exclusive argument error")
+	}
+}
+
+func TestEnrollRunningRejectsNameOverride(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withCLIPaths(t, filepath.Join(t.TempDir(), "missing.toml"), filepath.Join(t.TempDir(), "inventory.json"))
+
+	cmd := newEnrollCmdWithProber(fakeProber{
+		available: true,
+		containers: []local.Container{{
+			Project:            "media",
+			ProjectWorkingDir:  dir,
+			ProjectConfigFiles: filepath.Join(dir, "compose.yaml"),
+			Service:            "web",
+		}},
+	})
+	cmd.SetArgs([]string{"--running", "media", "--name", "alias"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--name cannot be combined with --running") {
+		t.Fatalf("enroll with --running and --name error = %v, want explicit rejection", err)
 	}
 }
