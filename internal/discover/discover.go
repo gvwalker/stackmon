@@ -115,17 +115,17 @@ func DockerCandidates(containers []local.Container, inv inventory.Inventory) []C
 		if c.Project == "" || seenProjects[c.Project] {
 			continue
 		}
-		seenProjects[c.Project] = true
 		if c.ProjectWorkingDir == "" || !filepath.IsAbs(c.ProjectWorkingDir) || strings.TrimSpace(c.ProjectConfigFiles) == "" {
 			continue
 		}
+		seenProjects[c.Project] = true
 		dir := filepath.Clean(c.ProjectWorkingDir)
 		file, ok := FindComposeFile(dir)
 		if !ok {
 			continue
 		}
 		out = append(out, Candidate{
-			Name:     filepath.Base(dir),
+			Name:     c.Project,
 			Project:  c.Project,
 			Dir:      dir,
 			File:     file,

@@ -1,18 +1,24 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/gvwalker/stackmon/internal/discover"
+	"github.com/gvwalker/stackmon/internal/local"
 )
 
 func newDiscoverCmd() *cobra.Command {
+	return newDiscoverCmdWithProber(local.New())
+}
+
+func newDiscoverCmdWithProber(prober local.Prober) *cobra.Command {
 	return &cobra.Command{
 		Use:   "discover",
-		Short: "List compose stacks under the configured roots",
+		Short: "List compose stacks from configured roots and running containers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
@@ -22,14 +28,20 @@ func newDiscoverCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if len(cfg.Roots) == 0 {
-				return fmt.Errorf("no roots configured; add roots = [...] to your config file")
-			}
 
-			cands, err := discover.Scan(cfg.Roots, inv)
+			rootCandidates, err := discover.Scan(cfg.Roots, inv)
 			if err != nil {
 				return err
 			}
+			var dockerCandidates []discover.Candidate
+			if prober.Available() {
+				containers, err := prober.Containers(context.Background())
+				if err != nil {
+					return err
+				}
+				dockerCandidates = discover.DockerCandidates(containers, inv)
+			}
+			cands := discover.Merge(inv, rootCandidates, dockerCandidates)
 
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tSTATE\tPATH")
