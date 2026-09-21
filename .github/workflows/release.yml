@@ -1,0 +1,65 @@
+name: Release
+
+'on':
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Find latest main build artifacts
+        id: artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for run_id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=100" --jq '.workflow_runs[].id'); do
+            artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" --jq '[.artifacts[] | select(.expired | not) | .name] | sort | join(" ")')
+            if [ "$artifacts" = 'stackmon-darwin-arm64 stackmon-linux-amd64 stackmon-linux-arm64' ]; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo 'No successful main CI build with all release artifacts was found.' >&2
+          exit 1
+
+      - name: Download build artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ steps.artifacts.outputs.run_id }}
+        run: |
+          mkdir dist
+          for artifact in stackmon-linux-amd64 stackmon-linux-arm64 stackmon-darwin-arm64; do
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir dist
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum stackmon-* > checksums.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            dist/stackmon-* \
+            dist/checksums.txt \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

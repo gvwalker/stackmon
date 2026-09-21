@@ -4,8 +4,6 @@ name: CI
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   pull_request:
     branches:
       - main
@@ -42,10 +40,37 @@ jobs:
       - name: Run tests with race detector
         run: go test -v -race ./...
 
+  changes:
+    name: Detect artifact changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.filter.outputs.build }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check whether build inputs changed
+        id: filter
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ "$BEFORE" = '0000000000000000000000000000000000000000' ] || ! git diff --quiet "$BEFORE" "$AFTER" -- cmd internal go.mod go.sum .github/workflows/ci.yml; then
+            echo 'build=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build=false' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build (${{ matrix.os }}/${{ matrix.arch }})
-    needs: check
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: [check, changes]
+    if: >-
+      always() && needs.check.result == 'success' &&
+      ((github.event_name == 'push' && needs.changes.outputs.build == 'true') ||
+      github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -71,7 +96,7 @@ jobs:
           CGO_ENABLED: '0'
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-          VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'dev' }}
+          VERSION: dev
         run: |
           mkdir -p dist
           go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o dist/stackmon-${{ matrix.os }}-${{ matrix.arch }} ./cmd/stackmon
@@ -82,38 +107,3 @@ jobs:
           name: stackmon-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/stackmon-${{ matrix.os }}-${{ matrix.arch }}
           if-no-files-found: error
-
-  release:
-    name: Create Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          path: dist
-          pattern: stackmon-*
-          merge-multiple: true
-
-      - name: Generate checksums
-        run: |
-          cd dist
-          sha256sum stackmon-* > checksums.txt
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${{ github.ref_name }}" \
-            dist/stackmon-* \
-            dist/checksums.txt \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
