@@ -26,6 +26,10 @@ func (bumpRegistry) Tags(context.Context, string) ([]string, error) {
 }
 
 func bumpCommandFixture(t *testing.T, compose string) (string, *bytes.Buffer, *bytes.Buffer, *cobra.Command) {
+	return bumpCommandFixtureWithConfig(t, compose, "")
+}
+
+func bumpCommandFixtureWithConfig(t *testing.T, compose, config string) (string, *bytes.Buffer, *bytes.Buffer, *cobra.Command) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "compose.yaml")
@@ -37,7 +41,7 @@ func bumpCommandFixture(t *testing.T, compose string) (string, *bytes.Buffer, *b
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(cfgPath, nil, 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	oldInv, oldCfg := flagInventory, flagConfig
@@ -52,6 +56,45 @@ func bumpCommandFixture(t *testing.T, compose string) (string, *bytes.Buffer, *b
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
 	return path, &out, &errOut, cmd
+}
+
+func TestBumpDigestConfigurationAndFlagPrecedence(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     string
+		args       []string
+		wantDigest bool
+	}{
+		{name: "absent config and omitted flag", wantDigest: false},
+		{name: "false config and omitted flag", config: "[bump]\ndigest = false\n", wantDigest: false},
+		{name: "true config and omitted flag", config: "[bump]\ndigest = true\n", wantDigest: true},
+		{name: "true flag overrides false config", config: "[bump]\ndigest = false\n", args: []string{"--digest"}, wantDigest: true},
+		{name: "false flag overrides true config", config: "[bump]\ndigest = true\n", args: []string{"--digest=false"}, wantDigest: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path, out, errOut, cmd := bumpCommandFixtureWithConfig(t, "services:\n  api:\n    image: example:1.0.0\n", tt.config)
+			cmd.SetArgs(append([]string{"demo"}, tt.args...))
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "image: example:1.0.1"
+			if tt.wantDigest {
+				want += "@" + testDigestB
+			}
+			if !strings.Contains(string(got), want+"\n") {
+				t.Errorf("compose = %q, want %q", got, want)
+			}
+			if !strings.Contains(out.String(), "bumped demo/api") || errOut.Len() != 0 {
+				t.Errorf("stdout=%q stderr=%q", out.String(), errOut.String())
+			}
+		})
+	}
 }
 
 func TestBumpDigestPinsCandidateThroughCLI(t *testing.T) {

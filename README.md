@@ -143,7 +143,7 @@ stackmon bump traefik --digest
 
 Rewrites eligible image references in one stack to their selected candidates. Always use `--dry-run` first to inspect the unified diff. A service argument limits the change to that service.
 
-`bump` updates both tag and digest when both are present, writes through a temporary file, and refuses to overwrite a file if the image reference changed since it was inspected. `--digest` is opt-in: when a tagged Pin has a newer Candidate, it writes that Candidate's tag and resolved digest. Without it, tagged-only Pins remain tagged-only. Digest-only Pins retain their shape and print a notice when `--digest` is enabled. If stackmon cannot resolve a Candidate digest required for a pin, it skips that Service (and continues with other eligible Services); a run with only skips still succeeds. `--dry-run` prints the same planned diffs and notices without writing. It refuses floating-only tags such as `:latest` and interpolated image references such as `${IMAGE_TAG}` because neither has a safe literal pin to rewrite. It does **not** deploy the updated Compose file.
+`bump` updates both tag and digest when both are present, writes through a temporary file, and refuses to overwrite a file if the image reference changed since it was inspected. Digest pinning is disabled by default; enable it globally with `bump.digest = true` or for one run with `--digest`. `--digest=false` overrides a true global default. When enabled and a tagged Pin has a newer Candidate, it writes that Candidate's tag and resolved digest. When disabled, tagged-only Pins remain tagged-only. Digest-only Pins retain their shape and print a notice whenever Digest Pinning is enabled. If stackmon cannot resolve a Candidate digest required for a pin, it skips that Service (and continues with other eligible Services); a run with only skips still succeeds. `--dry-run` prints the same planned diffs and notices without writing. It refuses floating-only tags such as `:latest` and interpolated image references such as `${IMAGE_TAG}` because neither has a safe literal pin to rewrite. It does **not** deploy the updated Compose file.
 
 ### Shell completion
 
@@ -169,6 +169,12 @@ roots = ["/srv/compose", "/opt/stacks"]
 
 # Maximum simultaneous registry probes. Default: 8. Must be positive.
 concurrency = 8
+
+# Add resolved candidate digests to tag-only Pins by default. Default: false.
+# `stackmon bump --digest` and `stackmon bump --digest=false` override this
+# setting for a single invocation.
+[bump]
+digest = true
 
 # Optional per-stack, per-image overrides.
 [stacks.postgres.images."pgvector/pgvector"]

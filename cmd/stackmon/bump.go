@@ -47,6 +47,14 @@ func newBumpCmdWithReportLoader(load stackReportLoader) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			effectiveDigest := cfg.Bump.Digest
+			if cmd.Flags().Changed("digest") {
+				effectiveDigest = digest
+			}
 
 			var only string
 			if len(args) == 2 {
@@ -75,11 +83,11 @@ func newBumpCmdWithReportLoader(load stackReportLoader) *cobra.Command {
 					continue
 				}
 				st := parsed[0]
-				if digest && svc.Ref.Shape == imageref.ShapeDigestOnly {
-					fmt.Fprintf(cmd.ErrOrStderr(), "notice: %s/%s is already digest-only; --digest leaves its shape unchanged\n", st.Name, svc.Name)
+				if effectiveDigest && svc.Ref.Shape == imageref.ShapeDigestOnly {
+					fmt.Fprintf(cmd.ErrOrStderr(), "notice: %s/%s is already digest-only; digest pinning leaves its shape unchanged\n", st.Name, svc.Name)
 				}
 
-				change, err := bump.PlanWithOptions(st, svc, img, bump.Options{Digest: digest})
+				change, err := bump.PlanWithOptions(st, svc, img, bump.Options{Digest: effectiveDigest})
 				if err != nil {
 					// A refusal is informational, not fatal: other services
 					// in the stack may still be bumpable. This includes a
@@ -118,7 +126,7 @@ func newBumpCmdWithReportLoader(load stackReportLoader) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print a unified diff instead of writing")
-	cmd.Flags().BoolVar(&digest, "digest", false, "pin candidate digests when advancing tagged image pins")
+	cmd.Flags().BoolVar(&digest, "digest", false, "pin candidate digests when advancing tagged image pins (overrides bump.digest)")
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeEnrolledStacks(cmd, args, toComplete)

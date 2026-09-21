@@ -20,6 +20,9 @@ func TestLoadReadsRootsAndOverrides(t *testing.T) {
 roots = ["/media/media-library/config", "/media/fast"]
 concurrency = 4
 
+[bump]
+digest = true
+
 [stacks.traefik.images."traefik"]
 repo = "traefik/traefik"
 
@@ -36,11 +39,30 @@ constraint = "pg18*"
 	if c.Concurrency != 4 {
 		t.Errorf("Concurrency = %d, want 4", c.Concurrency)
 	}
+	if !c.Bump.Digest {
+		t.Error("Bump.Digest = false, want true")
+	}
 	if got := c.Image("traefik", "traefik").Repo; got != "traefik/traefik" {
 		t.Errorf("traefik repo override = %q", got)
 	}
 	if got := c.Image("postgres", "pgvector/pgvector").Constraint; got != "pg18*" {
 		t.Errorf("postgres constraint override = %q", got)
+	}
+}
+
+func TestLoadDefaultsBumpDigestToFalse(t *testing.T) {
+	c, err := Load(writeTemp(t, `roots = ["/tmp"]`))
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if c.Bump.Digest {
+		t.Error("Bump.Digest = true, want false when absent")
+	}
+}
+
+func TestLoadRejectsNonBooleanBumpDigest(t *testing.T) {
+	if _, err := Load(writeTemp(t, "[bump]\ndigest = \"yes\"")); err == nil {
+		t.Fatal("Load with non-boolean bump.digest = nil error, want error")
 	}
 }
 
