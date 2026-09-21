@@ -29,11 +29,19 @@ type StackConfig struct {
 	Images map[string]ImageConfig `toml:"images"`
 }
 
+// BumpConfig controls the default behavior of the bump command.
+type BumpConfig struct {
+	// Digest makes bump add a resolved digest when advancing a tag-only pin.
+	// It can be overridden for one invocation with --digest or --digest=false.
+	Digest bool `toml:"digest"`
+}
+
 // Config is the parsed contents of config.toml.
 type Config struct {
 	Roots       []string
 	Concurrency int
 	Stacks      map[string]StackConfig
+	Bump        BumpConfig
 }
 
 // rawConfig is the direct TOML-unmarshalling target. Concurrency is a
@@ -44,6 +52,7 @@ type rawConfig struct {
 	Roots       []string               `toml:"roots"`
 	Concurrency *int                   `toml:"concurrency"`
 	Stacks      map[string]StackConfig `toml:"stacks"`
+	Bump        BumpConfig             `toml:"bump"`
 }
 
 // Image returns the override for one image in one stack, or the zero value if
@@ -93,5 +102,6 @@ func Load(path string) (Config, error) {
 		Roots:       raw.Roots,
 		Concurrency: concurrency,
 		Stacks:      raw.Stacks,
+		Bump:        raw.Bump,
 	}, nil
 }

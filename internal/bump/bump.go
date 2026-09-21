@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/gvwalker/stackmon/internal/compose"
 	"github.com/gvwalker/stackmon/internal/imageref"
+	"github.com/gvwalker/stackmon/internal/policy"
 	"github.com/gvwalker/stackmon/internal/report"
 )
 
@@ -24,9 +26,22 @@ type Change struct {
 	New string
 }
 
-// Plan computes the rewrite for one service, refusing references that must
-// not be touched.
+// Options controls how Plan treats otherwise floating tagged references.
+type Options struct {
+	// Digest adds the candidate's resolved digest to a tag-only pin. It is
+	// deliberately opt-in because it changes a floating tag into a pin.
+	Digest bool
+}
+
+// Plan computes the default rewrite for one service, refusing references that
+// must not be touched.
 func Plan(st compose.Stack, svc compose.Service, img report.Image) (Change, error) {
+	return PlanWithOptions(st, svc, img, Options{})
+}
+
+// PlanWithOptions computes the rewrite for one service with optional bump
+// behavior enabled.
+func PlanWithOptions(st compose.Stack, svc compose.Service, img report.Image, opts Options) (Change, error) {
 	ref := svc.Ref
 
 	if ref.Interpolated {
@@ -36,11 +51,12 @@ func Plan(st compose.Stack, svc compose.Service, img report.Image) (Change, erro
 	}
 
 	tag, digest := ref.Tag, ref.Digest
+	currentVersionPin := ref.Shape == imageref.ShapeTagOnly && opts.Digest && policy.Infer(ref.Tag).Trackable
 
 	switch {
 	case img.Candidate != "":
 		tag = img.Candidate
-		if ref.Shape != imageref.ShapeTagOnly {
+		if ref.Shape != imageref.ShapeTagOnly || opts.Digest {
 			// A tag+digest or digest-only pin also carries a digest, and it
 			// must be the candidate's, not the declared reference's:
 			// RegistryDigest is what the registry serves for the
@@ -63,14 +79,31 @@ func Plan(st compose.Stack, svc compose.Service, img report.Image) (Change, erro
 		// declared version, so the registry's digest for that reference is
 		// exactly what's needed.
 		digest = img.RegistryDigest
+	case currentVersionPin:
+		// There is no newer candidate, but this is a tag stackmon already
+		// recognises as a version. Digest pinning may adopt an immutable pin
+		// for that exact declared version. Do not use a configured constraint
+		// as eligibility here: it can make an otherwise opaque tag trackable
+		// for updates, but must not freeze that tag in place.
+		if img.RegistryDigest == "" {
+			return Change{}, fmt.Errorf(
+				"bump: %s/%s: %s's digest could not be resolved; the pin cannot be safely adopted without it",
+				st.Name, svc.Name, ref.Tag)
+		}
+		digest = img.RegistryDigest
 	}
 
-	// A tag-only reference with no candidate is floating: there is nothing to
-	// advance to, and adding a digest would change the update policy.
+	// A tag-only reference with no candidate is normally floating. The sole
+	// exception is opt-in digest adoption for a version tag recognised by the
+	// same inference used by version selection above.
 	if ref.Shape == imageref.ShapeTagOnly && img.Candidate == "" {
-		return Change{}, fmt.Errorf(
-			"bump: %s/%s tracks the floating tag %q; there is no newer version to move to, and pinning it would change how it updates",
-			st.Name, svc.Name, ref.Tag)
+		if currentVersionPin && digest != "" {
+			// The selected declared version was safely converted above.
+		} else {
+			return Change{}, fmt.Errorf(
+				"bump: %s/%s tracks the floating tag %q; there is no newer version to move to, and pinning it would change how it updates",
+				st.Name, svc.Name, ref.Tag)
+		}
 	}
 
 	next := rebuild(ref, tag, digest)
@@ -140,30 +173,58 @@ func validateRange(c Change, dataLen int) error {
 
 // Apply writes the change, aborting if the file no longer matches what was
 // observed, so a concurrent edit cannot be clobbered.
-func Apply(c Change) error {
-	data, err := os.ReadFile(c.Path)
+func Apply(c Change) error { return ApplyAll([]Change{c}) }
+
+// ApplyAll writes changes after checking every source range against the same
+// original file contents. Replacements are applied from the end of each file
+// towards its beginning, so a longer earlier pin cannot invalidate a later
+// service's offsets. Nothing is written for a file until all of that file's
+// changes pass the stale-file checks.
+func ApplyAll(changes []Change) error {
+	byPath := make(map[string][]Change)
+	for _, c := range changes {
+		byPath[c.Path] = append(byPath[c.Path], c)
+	}
+	for path, group := range byPath {
+		if err := applyFile(path, group); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyFile(path string, changes []Change) error {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("bump: reading %s: %w", c.Path, err)
+		return fmt.Errorf("bump: reading %s: %w", path, err)
+	}
+	for _, c := range changes {
+		if err := validateRange(c, len(data)); err != nil {
+			return err
+		}
+		if got := string(data[c.Offset : c.Offset+c.Length]); got != c.Old {
+			return fmt.Errorf("bump: %s changed since it was checked (found %q where %q was expected); re-run check", c.Path, got, c.Old)
+		}
 	}
 
-	if err := validateRange(c, len(data)); err != nil {
-		return err
-	}
-	if got := string(data[c.Offset : c.Offset+c.Length]); got != c.Old {
-		return fmt.Errorf("bump: %s changed since it was checked (found %q where %q was expected); re-run check", c.Path, got, c.Old)
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Offset > changes[j].Offset })
+	for i := 1; i < len(changes); i++ {
+		if changes[i-1].Offset < changes[i].Offset+changes[i].Length {
+			return fmt.Errorf("bump: %s has overlapping planned changes; re-run check", path)
+		}
 	}
 
-	info, err := os.Stat(c.Path)
+	info, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("bump: stat %s: %w", c.Path, err)
+		return fmt.Errorf("bump: stat %s: %w", path, err)
 	}
 
-	var out []byte
-	out = append(out, data[:c.Offset]...)
-	out = append(out, c.New...)
-	out = append(out, data[c.Offset+c.Length:]...)
+	out := append([]byte(nil), data...)
+	for _, c := range changes {
+		out = append(out[:c.Offset], append([]byte(c.New), out[c.Offset+c.Length:]...)...)
+	}
 
-	dir := filepath.Dir(c.Path)
+	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".stackmon-*.yml")
 	if err != nil {
 		return fmt.Errorf("bump: creating temp file: %w", err)
@@ -185,7 +246,7 @@ func Apply(c Change) error {
 	if err := os.Chmod(tmpName, info.Mode().Perm()); err != nil {
 		return fmt.Errorf("bump: preserving mode: %w", err)
 	}
-	if err := os.Rename(tmpName, c.Path); err != nil {
+	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("bump: renaming into place: %w", err)
 	}
 	return nil

@@ -114,6 +114,42 @@ func TestPlanAdvancesTagOnly(t *testing.T) {
 	}
 }
 
+func TestPlanDigestPinsCurrentRecognizedVersion(t *testing.T) {
+	const body = "services:\n  a:\n    image: example:v1.2.3\n"
+	st, svc, _ := serviceAt(t, body, "example:v1.2.3")
+
+	c, err := PlanWithOptions(st, svc, report.Image{RegistryDigest: sha256B}, Options{Digest: true})
+	if err != nil {
+		t.Fatalf("PlanWithOptions error: %v", err)
+	}
+	if want := "example:v1.2.3@" + sha256B; c.New != want {
+		t.Errorf("New = %q, want %q", c.New, want)
+	}
+}
+
+func TestPlanDigestDoesNotPinCurrentOpaqueTag(t *testing.T) {
+	const body = "services:\n  a:\n    image: example:latest\n"
+	st, svc, _ := serviceAt(t, body, "example:latest")
+
+	_, err := PlanWithOptions(st, svc, report.Image{RegistryDigest: sha256B}, Options{Digest: true})
+	if err == nil {
+		t.Fatal("PlanWithOptions on an opaque tag = nil error, want refusal")
+	}
+}
+
+func TestPlanDigestRefusesCurrentVersionWithoutDigest(t *testing.T) {
+	const body = "services:\n  a:\n    image: example:1.2.3\n"
+	st, svc, _ := serviceAt(t, body, "example:1.2.3")
+
+	_, err := PlanWithOptions(st, svc, report.Image{}, Options{Digest: true})
+	if err == nil {
+		t.Fatal("PlanWithOptions without a declared tag digest = nil error, want refusal")
+	}
+	if !strings.Contains(err.Error(), "digest could not be resolved") {
+		t.Errorf("error = %v, want digest lookup explanation", err)
+	}
+}
+
 // A floating tag has nothing to advance to; pinning it silently would change
 // the user's update policy behind their back.
 func TestPlanRefusesFloatingReference(t *testing.T) {
