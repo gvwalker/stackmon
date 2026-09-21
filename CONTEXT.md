@@ -77,9 +77,13 @@ A running container is pinned to an older digest than its floating tag now resol
 ### Bump
 
 **Bump**:
-The operation that rewrites one stack's eligible image pins to their Candidates, in place in the compose file, preserving comments and formatting via exact byte-range replacement. Never reserialises YAML, never deploys.
+The operation that rewrites one stack's eligible image pins to their Candidates or pins the current Version by digest, in place in the compose file, preserving comments and formatting via exact byte-range replacement. Never reserialises YAML, never deploys.
 _Avoid_: Update (reserve for the Status; Bump is the action that could resolve an update-available Status), upgrade.
 
 **Pin**:
 The literal image reference text in a compose file that Bump may rewrite. A floating tag (`:latest`) or an interpolated reference (`${IMAGE_TAG}`) has no safe literal pin and is refused.
 _Avoid_: Reference (see Ref), lock.
+
+**Digest Pinning**:
+Writing the selected version tag together with its resolved digest when performing a Bump, retaining the readable version while identifying immutable image content. The selected version may be a newer Candidate or the current Version when no newer Candidate exists; existing digest-only pins retain their shape.
+_Avoid_: Digest target (the user does not supply a target digest).
