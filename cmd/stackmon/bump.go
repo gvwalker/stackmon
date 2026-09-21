@@ -126,7 +126,7 @@ func newBumpCmdWithReportLoader(load stackReportLoader) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print a unified diff instead of writing")
-	cmd.Flags().BoolVar(&digest, "digest", false, "pin candidate digests when advancing tagged image pins (overrides bump.digest)")
+	cmd.Flags().BoolVar(&digest, "digest", false, "pin resolved digests for eligible tagged pins, including current versions (overrides bump.digest)")
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeEnrolledStacks(cmd, args, toComplete)
