@@ -7,17 +7,43 @@ import (
 
 	"github.com/gvwalker/stackmon/internal/bump"
 	"github.com/gvwalker/stackmon/internal/compose"
+	"github.com/gvwalker/stackmon/internal/imageref"
+	"github.com/gvwalker/stackmon/internal/local"
+	"github.com/gvwalker/stackmon/internal/report"
 )
 
 func newBumpCmd() *cobra.Command {
-	var dryRun bool
+	return newBumpCmdWithClients(nil, nil)
+}
+
+// newBumpCmdWithClients supplies deterministic probes to the full command
+// pipeline in tests. Nil values retain the production clients.
+func newBumpCmdWithClients(reg report.RegistryProber, docker local.Prober) *cobra.Command {
+	if reg == nil {
+		return newBumpCmdWithReportLoader(loadStackReport)
+	}
+	return newBumpCmdWithReportLoader(func(cmd *cobra.Command, names []string) (report.Report, []compose.Stack, error) {
+		return loadStackReportWithClients(cmd, names, reg, docker)
+	})
+}
+
+type stackReportLoader func(*cobra.Command, []string) (report.Report, []compose.Stack, error)
+
+type plannedChange struct {
+	stack   string
+	service string
+	change  bump.Change
+}
+
+func newBumpCmdWithReportLoader(load stackReportLoader) *cobra.Command {
+	var dryRun, digest bool
 
 	cmd := &cobra.Command{
 		Use:   "bump <stack> [service]",
 		Short: "Rewrite a stack's image pins to the newest available",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, parsed, err := loadStackReport(cmd, args[:1])
+			r, parsed, err := load(cmd, args[:1])
 			if err != nil {
 				return err
 			}
@@ -39,7 +65,7 @@ func newBumpCmd() *cobra.Command {
 				}
 			}
 
-			changed := 0
+			var plans []plannedChange
 			for _, img := range r.Images {
 				if only != "" && img.Service != only {
 					continue
@@ -49,8 +75,11 @@ func newBumpCmd() *cobra.Command {
 					continue
 				}
 				st := parsed[0]
+				if digest && svc.Ref.Shape == imageref.ShapeDigestOnly {
+					fmt.Fprintf(cmd.ErrOrStderr(), "notice: %s/%s is already digest-only; --digest leaves its shape unchanged\n", st.Name, svc.Name)
+				}
 
-				change, err := bump.Plan(st, svc, img)
+				change, err := bump.PlanWithOptions(st, svc, img, bump.Options{Digest: digest})
 				if err != nil {
 					// A refusal is informational, not fatal: other services
 					// in the stack may still be bumpable. This includes a
@@ -59,28 +88,37 @@ func newBumpCmd() *cobra.Command {
 					continue
 				}
 
-				if dryRun {
-					d, err := bump.Diff(change)
+				plans = append(plans, plannedChange{stack: st.Name, service: svc.Name, change: change})
+			}
+
+			if dryRun {
+				for _, plan := range plans {
+					d, err := bump.Diff(plan.change)
 					if err != nil {
 						return err
 					}
 					fmt.Fprint(cmd.OutOrStdout(), d)
-					continue
 				}
-				if err := bump.Apply(change); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "bumped %s/%s: %s -> %s\n", st.Name, svc.Name, change.Old, change.New)
-				changed++
+				return nil
 			}
-
-			if changed == 0 && !dryRun {
+			changes := make([]bump.Change, 0, len(plans))
+			for _, plan := range plans {
+				changes = append(changes, plan.change)
+			}
+			if err := bump.ApplyAll(changes); err != nil {
+				return err
+			}
+			for _, plan := range plans {
+				fmt.Fprintf(cmd.OutOrStdout(), "bumped %s/%s: %s -> %s\n", plan.stack, plan.service, plan.change.Old, plan.change.New)
+			}
+			if len(plans) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "nothing to bump")
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print a unified diff instead of writing")
+	cmd.Flags().BoolVar(&digest, "digest", false, "pin candidate digests when advancing tagged image pins")
 	cmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) == 0 {
 			return completeEnrolledStacks(cmd, args, toComplete)
