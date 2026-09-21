@@ -12,6 +12,7 @@ import (
 
 	"github.com/gvwalker/stackmon/internal/compose"
 	"github.com/gvwalker/stackmon/internal/imageref"
+	"github.com/gvwalker/stackmon/internal/policy"
 	"github.com/gvwalker/stackmon/internal/report"
 )
 
@@ -50,6 +51,7 @@ func PlanWithOptions(st compose.Stack, svc compose.Service, img report.Image, op
 	}
 
 	tag, digest := ref.Tag, ref.Digest
+	currentVersionPin := ref.Shape == imageref.ShapeTagOnly && opts.Digest && policy.Infer(ref.Tag).Trackable
 
 	switch {
 	case img.Candidate != "":
@@ -77,14 +79,31 @@ func PlanWithOptions(st compose.Stack, svc compose.Service, img report.Image, op
 		// declared version, so the registry's digest for that reference is
 		// exactly what's needed.
 		digest = img.RegistryDigest
+	case currentVersionPin:
+		// There is no newer candidate, but this is a tag stackmon already
+		// recognises as a version. Digest pinning may adopt an immutable pin
+		// for that exact declared version. Do not use a configured constraint
+		// as eligibility here: it can make an otherwise opaque tag trackable
+		// for updates, but must not freeze that tag in place.
+		if img.RegistryDigest == "" {
+			return Change{}, fmt.Errorf(
+				"bump: %s/%s: %s's digest could not be resolved; the pin cannot be safely adopted without it",
+				st.Name, svc.Name, ref.Tag)
+		}
+		digest = img.RegistryDigest
 	}
 
-	// A tag-only reference with no candidate is floating: there is nothing to
-	// advance to, and adding a digest would change the update policy.
+	// A tag-only reference with no candidate is normally floating. The sole
+	// exception is opt-in digest adoption for a version tag recognised by the
+	// same inference used by version selection above.
 	if ref.Shape == imageref.ShapeTagOnly && img.Candidate == "" {
-		return Change{}, fmt.Errorf(
-			"bump: %s/%s tracks the floating tag %q; there is no newer version to move to, and pinning it would change how it updates",
-			st.Name, svc.Name, ref.Tag)
+		if currentVersionPin && digest != "" {
+			// The selected declared version was safely converted above.
+		} else {
+			return Change{}, fmt.Errorf(
+				"bump: %s/%s tracks the floating tag %q; there is no newer version to move to, and pinning it would change how it updates",
+				st.Name, svc.Name, ref.Tag)
+		}
 	}
 
 	next := rebuild(ref, tag, digest)

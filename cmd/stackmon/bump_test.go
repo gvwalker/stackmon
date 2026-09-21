@@ -48,6 +48,8 @@ func bumpCommandFixtureWithConfig(t *testing.T, compose, config string) (string,
 	flagInventory, flagConfig = invPath, cfgPath
 	t.Cleanup(func() { flagInventory, flagConfig = oldInv, oldCfg })
 	reg := bumpRegistry{images: map[string]registry.Image{
+		"example:1.0.0":                         {Digest: testDigestA},
+		"example:1.0.1":                         {Digest: testDigestB},
 		"index.docker.io/library/example:1.0.0": {Digest: testDigestA},
 		"index.docker.io/library/example:1.0.1": {Digest: testDigestB},
 	}}
@@ -129,6 +131,25 @@ func TestBumpDigestFalseKeepsTaggedPinFloating(t *testing.T) {
 	}
 	if !strings.Contains(string(got), "image: example:1.0.1\n") {
 		t.Errorf("tag-only pin was not preserved: %s", got)
+	}
+}
+
+func TestBumpDigestPinsCurrentRecognizedVersionThroughCLI(t *testing.T) {
+	path, out, errOut, cmd := bumpCommandFixture(t, "services:\n  api:\n    image: example:1.0.1 # preserve me\n")
+	cmd.SetArgs([]string{"demo", "--digest"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "services:\n  api:\n    image: example:1.0.1@" + testDigestB + " # preserve me\n"
+	if string(got) != want {
+		t.Errorf("compose = %q, want %q", got, want)
+	}
+	if !strings.Contains(out.String(), "bumped demo/api") || errOut.Len() != 0 {
+		t.Errorf("stdout=%q stderr=%q", out.String(), errOut.String())
 	}
 }
 
