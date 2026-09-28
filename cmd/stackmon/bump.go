@@ -8,34 +8,17 @@ import (
 	"github.com/gvwalker/stackmon/internal/bump"
 	"github.com/gvwalker/stackmon/internal/compose"
 	"github.com/gvwalker/stackmon/internal/imageref"
-	"github.com/gvwalker/stackmon/internal/local"
-	"github.com/gvwalker/stackmon/internal/report"
 )
 
-func newBumpCmd() *cobra.Command {
-	return newBumpCmdWithClients(nil, nil)
-}
-
-// newBumpCmdWithClients supplies deterministic probes to the full command
-// pipeline in tests. Nil values retain the production clients.
-func newBumpCmdWithClients(reg report.RegistryProber, docker local.Prober) *cobra.Command {
-	if reg == nil {
-		return newBumpCmdWithReportLoader(loadStackReport)
-	}
-	return newBumpCmdWithReportLoader(func(cmd *cobra.Command, names []string) (report.Report, []compose.Stack, error) {
-		return loadStackReportWithClients(cmd, names, reg, docker)
-	})
-}
-
-type stackReportLoader func(*cobra.Command, []string) (report.Report, []compose.Stack, error)
-
+// plannedChange is one service's rewrite, kept with the name to report it
+// under, since a change carries only a path.
 type plannedChange struct {
 	stack   string
 	service string
 	change  bump.Change
 }
 
-func newBumpCmdWithReportLoader(load stackReportLoader) *cobra.Command {
+func newBumpCmd() *cobra.Command {
 	var dryRun, digest bool
 
 	cmd := &cobra.Command{
@@ -43,7 +26,7 @@ func newBumpCmdWithReportLoader(load stackReportLoader) *cobra.Command {
 		Short: "Rewrite a stack's image pins to the newest available",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			r, parsed, err := load(cmd, args[:1])
+			r, parsed, err := loadStackReport(cmd, args[:1])
 			if err != nil {
 				return err
 			}

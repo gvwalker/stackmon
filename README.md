@@ -202,7 +202,7 @@ Each image gets one primary status. When several conditions apply, stackmon prio
 | `not-running` | No container exists for the Compose service. Registry comparison still runs. |
 | `unknown` | A required per-image probe failed; the row includes a reason. |
 
-A Docker socket is optional. If it is absent or unreadable, stackmon produces a file-and-registry report without running-container comparisons and states that limitation in the output. Docker credentials are read from `~/.docker/config.json`, including configured credential helpers; stackmon stores no registry credentials.
+A Docker socket is optional. If it is absent or unreadable, stackmon produces a file-and-registry report without running-container comparisons and states that limitation in the output. Set `STACKMON_DOCKER_SOCKET` to read a daemon on a non-default path, such as a rootless Docker socket. Docker credentials are read from `~/.docker/config.json`, including configured credential helpers; stackmon stores no registry credentials. Set `STACKMON_GITHUB_API` to point the release-notes and self-update lookups at a GitHub Enterprise API root.
 
 - Monitoring begins only after explicit enrollment. A new directory under a configured root or a newly observed running container never silently joins checks.
 - `discover` combines configured-root results with running Compose projects when Docker is available. A Docker-only stack may be enrolled with `enroll --running <project>`.
@@ -214,12 +214,14 @@ A Docker socket is optional. If it is absent or unreadable, stackmon produces a 
 
 ## Development
 
-Requirements: Go 1.27 and access to the Docker and registry services needed by any manual smoke test. The test suite is hermetic and does not require live registries.
+Requirements: Go 1.27. The test suite is the `e2e` package, and it is hermetic: it runs the built binary against a real in-memory registry, a real Docker Engine API on a unix socket, and a real GitHub API, all started by the test. No live registry, daemon, or network access is needed.
 
 ```sh
 go test -race ./...
 go vet ./...
 go build ./cmd/stackmon
 ```
+
+Each run writes its full transcript to `e2e/out/transcript.txt` and compares it against `e2e/testdata/transcript.golden`, so a behavioural change shows up as a reviewable diff. Regenerate the golden with `UPDATE_GOLDEN=1 go test ./e2e/` after confirming the change is intended.
 
 GitHub Actions runs formatting verification, `go vet ./...`, and `go test -v -race ./...` for pull requests and pushes to `main`. Version tags (`v*`) also build the supported static binaries, generate SHA-256 checksums, and publish a GitHub release.

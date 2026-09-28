@@ -12,10 +12,7 @@ import (
 )
 
 func newDiscoverCmd() *cobra.Command {
-	return newDiscoverCmdWithProber(local.New())
-}
-
-func newDiscoverCmdWithProber(prober local.Prober) *cobra.Command {
+	prober := local.New()
 	return &cobra.Command{
 		Use:   "discover",
 		Short: "List compose stacks from configured roots and running containers",

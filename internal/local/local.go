@@ -54,21 +54,21 @@ type Container struct {
 	RepoDigests []string
 }
 
-// Prober is the surface Task 10 depends on, so that report building can be
-// tested without a Docker socket.
-type Prober interface {
-	Containers(ctx context.Context) ([]Container, error)
-	Available() bool
-}
-
 // Client queries the Docker Engine API.
 type Client struct {
 	socket string
 	http   *http.Client
 }
 
-// New returns a Client using the default socket path.
-func New() *Client { return NewWithSocket(DefaultSocket) }
+// New returns a Client using the default socket path. STACKMON_DOCKER_SOCKET
+// overrides it, for daemons that do not listen on the conventional path
+// (rootless Docker, a non-standard socket).
+func New() *Client {
+	if path := os.Getenv("STACKMON_DOCKER_SOCKET"); path != "" {
+		return NewWithSocket(path)
+	}
+	return NewWithSocket(DefaultSocket)
+}
 
 // NewWithSocket returns a Client using an explicit socket path.
 func NewWithSocket(path string) *Client {
