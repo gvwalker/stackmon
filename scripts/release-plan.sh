@@ -52,6 +52,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# What counts as a change a user could notice
+# ---------------------------------------------------------------------------
+
+# The paths a commit changed, one per line.
+commit_paths() {
+  git show --name-only --format= "$1" 2>/dev/null | sed '/^$/d'
+}
+
+# True when every path is repository infrastructure rather than something a
+# stackmon user runs or reads: the CI and release workflows, the release script
+# itself, and the agent-facing docs. A change to how the project is built says
+# nothing about the program it builds, so it has no place in the notes of a
+# release, and does not by itself warrant one.
+#
+# Paths are checked rather than the conventional-commit type, because a title
+# like "fix(release): ..." describes the wrong half of the story -- it is a fix
+# to something that is not the program. It also means a PR touching a workflow
+# and the code together still ships, and is kept.
+#
+# An empty list is not infrastructure: not knowing what a change touched is a
+# reason to report it, not a reason to hide it.
+is_infra() {
+  [ $# -gt 0 ] || return 1
+  local path
+  for path in "$@"; do
+    case $path in
+      .github/* | scripts/release-plan.sh | AGENTS.md | CONTEXT.md | docs/*) ;;
+      *) return 1 ;;
+    esac
+  done
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
 
@@ -89,6 +123,13 @@ else
   bump=''
   while read -r commit; do
     [ -n "$commit" ] || continue
+    # A commit that only rebuilds the project, whatever its type, ships nothing
+    # new to a user. It must not turn a `fix(release)` into a patch release with
+    # no release notes behind it. An explicit version overrides this.
+    mapfile -t bump_files < <(commit_paths "$commit")
+    if is_infra "${bump_files[@]}"; then
+      continue
+    fi
     level=$(classify "$(git log -1 --format=%s "$commit")" "$(git log -1 --format=%b "$commit")")
     case "$level" in
       breaking) bump=major ;;
@@ -149,10 +190,12 @@ pr_section() {
 # merge commit landed in the range being released, so a PR merged into another
 # branch after the tag is not reported as part of this release.
 pr_count=0
+noted=0
 covered=$(mktemp)
 pr_json=$(gh pr list --repo "$repo" --state merged --limit 200 \
   --search "merged:>=$since" \
-  --json number,title,url,author,mergedAt,mergeCommit | jq -c 'sort_by(.mergedAt)[]')
+  --json number,title,url,author,mergedAt,mergeCommit,files |
+  jq -c 'sort_by(.mergedAt)[]')
 while read -r pr; do
   [ -n "$pr" ] || continue
   merge_commit=$(printf '%s' "$pr" | jq -r '.mergeCommit.oid // ""')
@@ -168,13 +211,23 @@ while read -r pr; do
     fi
     printf '%s\n' "$merge_commit" >>"$covered"
   fi
+  # Changed how the project is built, not what it does. Counted as a PR, left
+  # out of the notes, and reported so the omission is deliberate and visible.
+  mapfile -t pr_paths < <(printf '%s' "$pr" | jq -r '.files[]?.path')
+  pr_count=$((pr_count + 1))
+  if is_infra "${pr_paths[@]}"; then
+    printf 'release-plan: omitting #%s (%s): infrastructure only\n' \
+      "$(printf '%s' "$pr" | jq -r '.number')" \
+      "$(printf '%s' "$pr" | jq -r '.title')" >&2
+    continue
+  fi
   section=$(pr_section "$(printf '%s' "$pr" | jq -r '.title')")
   number=$(printf '%s' "$pr" | jq -r '.number')
   title=$(printf '%s' "$pr" | jq -r '.title')
   url=$(printf '%s' "$pr" | jq -r '.url')
   author=$(printf '%s' "$pr" | jq -r '.author.login // ""')
   section_body[$section]+="- [#$number]($url) $title (@$author)"$'\n'
-  pr_count=$((pr_count + 1))
+  noted=$((noted + 1))
 done <<<"$pr_json"
 
 # Commits that no merged PR accounts for were pushed straight to main. They are
@@ -185,6 +238,12 @@ while read -r commit; do
   grep -qxF "$commit" "$covered" 2>/dev/null && continue
   subject=$(git log -1 --format=%s "$commit")
   [ -n "$subject" ] || continue
+  mapfile -t commit_files < <(commit_paths "$commit")
+  if is_infra "${commit_files[@]}"; then
+    printf 'release-plan: omitting %s: infrastructure only\n' \
+      "${commit:0:8} $subject" >&2
+    continue
+  fi
   section=$(classify "$subject" "$(git log -1 --format=%b "$commit")")
   # A docs- or ci-only commit is not releasable on its own, but it is still
   # part of the release, so it belongs under Other Changes.
@@ -207,10 +266,11 @@ rm -f "$covered"
 
 commits_since=$(git rev-list --count "$range")
 
-echo "release-plan: ${previous_tag:-no tag} -> $version ($commits_since commit(s), $pr_count merged PR(s))" >&2
+echo "release-plan: ${previous_tag:-no tag} -> $version ($commits_since commit(s), $noted of $pr_count merged PR(s) in the notes)" >&2
 echo "release-plan: notes written to $notes_file" >&2
 
 printf 'version=%s\n' "$version"
 printf 'previous_tag=%s\n' "$previous_tag"
 printf 'commits=%s\n' "$commits_since"
 printf 'prs=%s\n' "$pr_count"
+printf 'noted=%s\n' "$noted"
