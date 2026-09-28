@@ -1,52 +1,133 @@
 name: Release
 
 'on':
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. v0.5.0. Leave empty to derive it from the commits since the last tag.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Plan the release and print the notes without tagging or publishing.'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
   contents: write
 
+# Two releases tagging the same range at once would race for the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # The commit the release is built from and tagged at. Fixed at plan time so
+  # the plan, the binaries, and the tag cannot disagree.
+  SHA: ${{ github.sha }}
+
 jobs:
-  release:
-    name: Create Release
+  plan:
+    name: Plan release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      previous: ${{ steps.plan.outputs.previous_tag }}
     steps:
-      - name: Checkout tag
+      - name: Checkout main
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Verify tag is on main
-        run: |
-          git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      # Full history brings the tags, but the remote-tracking ref for main is
+      # what proves the commit being released is on main.
+      - name: Fetch main
+        run: git fetch origin main
 
-      - name: Find latest main build artifacts
-        id: artifacts
+      - name: Choose version and write release notes
+        id: plan
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          for run_id in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=100" --jq '.workflow_runs[].id'); do
-            artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" --jq '[.artifacts[] | select(.expired | not) | .name] | sort | join(" ")')
-            if [ "$artifacts" = 'stackmon-darwin-arm64 stackmon-linux-amd64 stackmon-linux-arm64' ]; then
-              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-              exit 0
+          ./scripts/release-plan.sh release-notes.md >> "$GITHUB_OUTPUT"
+          cat release-notes.md
+
+      - name: Summarise the plan
+        if: ${{ always() }}
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          PREVIOUS: ${{ steps.plan.outputs.previous_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "## Release plan"
+            echo
+            echo "\`${PREVIOUS:-none}\` -> \`${VERSION:-planning failed, see the log}\`"
+            if [ "$DRY_RUN" = 'true' ]; then
+              echo
+              echo 'Dry run: nothing was tagged, built, or published.'
             fi
-          done
-          echo 'No successful main CI build with all release artifacts was found.' >&2
-          exit 1
+            echo
+            cat release-notes.md 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Download build artifacts
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RUN_ID: ${{ steps.artifacts.outputs.run_id }}
+      - name: Upload release notes
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  publish:
+    name: Build and publish ${{ needs.plan.outputs.version }}
+    needs: plan
+    # A dry run stops here: the version and notes were printed, nothing else
+    # happened.
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the commit being released
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SHA }}
+          fetch-depth: 0
+
+      - name: Download release notes
+        uses: actions/download-artifact@v7
+        with:
+          name: release-notes
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      # The tag is only worth having if the code at it passes what main has to
+      # pass, so the same gates CI runs are re-run before anything is tagged.
+      - name: Verify formatting
         run: |
-          mkdir dist
-          for artifact in stackmon-linux-amd64 stackmon-linux-arm64 stackmon-darwin-arm64; do
-            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir dist
+          if [ -n "$(gofmt -l .)" ]; then
+            echo 'The following files are not formatted properly:'
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Run tests with race detector
+        run: go test -race ./...
+
+      - name: Build binaries
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          for target in linux-amd64 linux-arm64 darwin-arm64; do
+            GOOS=${target%-*} GOARCH=${target#*-} \
+              go build -trimpath -ldflags="-s -w -X main.version=${{ needs.plan.outputs.version }}" \
+              -o "dist/stackmon-$target" ./cmd/stackmon
           done
 
       - name: Generate checksums
@@ -54,12 +135,21 @@ jobs:
           cd dist
           sha256sum stackmon-* > checksums.txt
 
+      - name: Create tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          git tag -a "$VERSION" -m "stackmon $VERSION" "$SHA"
+          git push origin "refs/tags/$VERSION"
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
-          gh release create "${{ github.ref_name }}" \
+          gh release create "$VERSION" \
             dist/stackmon-* \
             dist/checksums.txt \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
+            --title "$VERSION" \
+            --notes-file release-notes.md
