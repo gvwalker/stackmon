@@ -143,16 +143,18 @@ jobs:
 
       - name: Create tag
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.plan.outputs.version }}
-          ACTOR: ${{ github.actor }}
         run: |
           # An annotated tag needs a committer, and a runner has no git
-          # identity. Attribute the tag to whoever dispatched the release, so
-          # it reads the same as the tags made by hand: the account's name,
-          # and the noreply address its commits already use.
-          tagger_name=$(gh api user --jq .name)
-          tagger_email="$ACTOR@users.noreply.github.com"
+          # identity. The author of the commit being tagged is the tagger:
+          # the same person who wrote the code being released, and the same
+          # identity every hand-made tag on this repo carries. Reading it from
+          # the commit needs no API call, so it cannot be denied one, and the
+          # NUL separator keeps a name containing anything from confusing the
+          # two fields.
+          IFS= read -r -d '' tagger_name < <(git log -1 --format='%an%x00' "$SHA")
+          IFS= read -r -d '' tagger_email < <(git log -1 --format='%ae%x00' "$SHA")
+          echo "tagging as $tagger_name <$tagger_email>"
           git -c user.name="$tagger_name" -c user.email="$tagger_email" \
             tag -a "$VERSION" -m "stackmon $VERSION" "$SHA"
           git push origin "refs/tags/$VERSION"
