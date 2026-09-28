@@ -1,0 +1,1197 @@
+
+### TestBumpAdvancesTagsAndLeavesTheFileAlone
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpAdvancesTagsAndLeavesTheFileAlone
+$ stackmon check --fail-on-update
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.2.0 available (minor)
+demo   worker   1.0.0    update-available  1.2.0 available (minor)
+--- exit 2 ---
+
+### TestBumpAdvancesTagsAndLeavesTheFileAlone
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.2.0
+bumped demo/worker: REGISTRY/app:1.0.0 -> REGISTRY/app:1.2.0
+--- exit 0 ---
+
+### TestBumpAdvancesTagAndDigestTogether
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpAdvancesTagAndDigestTogether
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c -> REGISTRY/app:1.2.0@sha256:e5b983a2d881ec3e5b37c95903de3ad2765c63bfe78864040d04c568b189f5b3
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0@sha256:ebe3163d5e94b9411145c3f811a707661cb261579eca265bd4b3900fdbdae392
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon bump demo --digest=false
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDigestPinningFollowsConfigThenFlag
+$ stackmon bump demo --digest
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0@sha256:ebe3163d5e94b9411145c3f811a707661cb261579eca265bd4b3900fdbdae392
+--- exit 0 ---
+
+### TestBumpDigestPinsTheCurrentVersionOrRefusesTo
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDigestPinsTheCurrentVersionOrRefusesTo
+$ stackmon bump demo --digest
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+--- stderr ---
+skipped: bump: demo/sonarr tracks the floating tag "latest"; there is no newer version to move to, and pinning it would change how it updates
+--- exit 0 ---
+
+### TestBumpRefusesFloatingAndInterpolatedReferences
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesFloatingAndInterpolatedReferences
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- stderr ---
+skipped: bump: demo/sonarr tracks the floating tag "latest"; there is no newer version to move to, and pinning it would change how it updates
+skipped: bump: demo/web is set from ${APP_VERSION}; edit the .env file in ROOT/srv/demo rather than the compose file
+--- exit 0 ---
+
+### TestBumpRefusesWhenTheCandidatesDigestCannotBeResolved
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesWhenTheCandidatesDigestCannotBeResolved
+$ stackmon bump demo
+--- stdout ---
+bumped demo/ci: REGISTRY/tool:1.0.0 -> REGISTRY/tool:1.1.0
+--- stderr ---
+skipped: bump: demo/api: candidate 9.9.9's digest could not be resolved (currently at 1.0.0); the pin cannot be safely advanced without it
+--- exit 0 ---
+
+### TestBumpSaysSoWhenThereIsNothingToBump
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpSaysSoWhenThereIsNothingToBump
+$ stackmon bump demo
+--- stdout ---
+nothing to bump
+--- stderr ---
+skipped: bump: demo/api is already at REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+--- exit 0 ---
+
+### TestBumpDryRunPreviewsWithoutWriting
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDryRunPreviewsWithoutWriting
+$ stackmon bump demo --dry-run
+--- stdout ---
+--- ROOT/srv/demo/compose.yaml
++++ ROOT/srv/demo/compose.yaml
+-    image: REGISTRY/app:1.0.0
++    image: REGISTRY/app:1.1.0
+--- exit 0 ---
+
+### TestBumpRefusesAFileChangedWhileItRuns
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesAFileChangedWhileItRuns
+$ stackmon bump demo
+--- stderr ---
+error: bump: ROOT/srv/demo/compose.yaml changed since it was checked (found "REGISTRY/app:1.0.0@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" where "REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c" was expected); re-run check
+--- exit 1 ---
+
+### TestBumpDryRunRefusesAFileChangedWhileItRuns
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDryRunRefusesAFileChangedWhileItRuns
+$ stackmon bump demo --dry-run
+--- stderr ---
+error: bump: ROOT/srv/demo/compose.yaml changed since it was checked (found "REGISTRY/app:1.0.0@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" where "REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c" was expected); re-run check
+--- exit 1 ---
+
+### TestBumpReportsAnUnparseableStackWithoutFailing
+$ stackmon enroll ROOT/srv/broken
+--- stdout ---
+enrolled broken (ROOT/srv/broken/compose.yaml)
+--- exit 0 ---
+
+### TestBumpReportsAnUnparseableStackWithoutFailing
+$ stackmon bump broken --dry-run
+--- stderr ---
+warning: broken: compose: loading ROOT/srv/broken/compose.yaml: error while interpolating services.api.image: required variable REQUIRED_IMAGE is missing a value: must be set
+--- exit 0 ---
+
+### TestBumpOnlyRewritesTheNamedService
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpOnlyRewritesTheNamedService
+$ stackmon bump demo api
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- exit 0 ---
+
+### TestBumpPreservesFileMode
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpPreservesFileMode
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- exit 0 ---
+
+### TestBumpNotesThatADigestOnlyPinStaysDigestOnly
+$ stackmon enroll ROOT/srv/edge
+--- stdout ---
+enrolled edge (ROOT/srv/edge/compose.yaml)
+--- exit 0 ---
+
+### TestBumpNotesThatADigestOnlyPinStaysDigestOnly
+$ stackmon bump edge --digest
+--- stdout ---
+bumped edge/proxy: REGISTRY/proxy@sha256:e2dd720411aef899367a7af72def2bc7f58bf1f3798294b2d3a65c7b1188bf23 -> REGISTRY/proxy@sha256:445137df063f4e4ce71cb0c788baf8f8834bb17732073391fe99a3c745c5a967
+--- stderr ---
+notice: edge/proxy is already digest-only; digest pinning leaves its shape unchanged
+--- exit 0 ---
+
+### TestCheckOffersNewerVersionsWithTheirKind
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckOffersNewerVersionsWithTheirKind
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.2.0 (minor)
+  demo         ci         1.0.0      update-available    -> 2.0.0 (major)
+--- docker available: true ---
+
+### TestCheckOffersNewerVersionsWithTheirKind
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.2.0 available (minor)
+demo   ci       1.0.0    update-available  2.0.0 available (major)
+--- exit 0 ---
+
+### TestCheckOffersNewerVersionsWithTheirKind
+$ stackmon check --fail-on-update
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.2.0 available (minor)
+demo   ci       1.0.0    update-available  2.0.0 available (major)
+--- exit 2 ---
+
+### TestCheckReportsCurrentWhenTheDeclaredTagIsNewest
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsCurrentWhenTheDeclaredTagIsNewest
+$ stackmon check --json
+  demo         api        1.1.0      current            
+--- docker available: true ---
+
+### TestCheckReportsCurrentWhenTheDeclaredTagIsNewest
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.1.0    current  
+--- exit 0 ---
+
+### TestCheckReportsCurrentWhenTheDeclaredTagIsNewest
+$ stackmon check --fail-on-update
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.1.0    current  
+--- exit 0 ---
+
+### TestCheckRefusesToAdviseAnOpaqueTag
+$ stackmon enroll ROOT/srv/db
+--- stdout ---
+enrolled db (ROOT/srv/db/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRefusesToAdviseAnOpaqueTag
+$ stackmon check --json
+  db           postgres   pg15       current            
+--- docker available: true ---
+
+### TestCheckHonoursAConfiguredConstraint
+$ stackmon enroll ROOT/srv/db
+--- stdout ---
+enrolled db (ROOT/srv/db/compose.yaml)
+--- exit 0 ---
+
+### TestCheckHonoursAConfiguredConstraint
+$ stackmon check --json
+  db           postgres   pg15       update-available    -> pg18.1 (major)
+--- docker available: true ---
+
+### TestCheckRanksBuildNumbersNumerically
+$ stackmon enroll ROOT/srv/media
+--- stdout ---
+enrolled media (ROOT/srv/media/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRanksBuildNumbersNumerically
+$ stackmon check --json
+  media        app        4.0.19.999-ls400 update-available    -> 4.0.19.1000-ls401 (patch)
+--- docker available: true ---
+
+### TestCheckDetectsDigestDriftWhenTheTagMoves
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckDetectsDigestDriftWhenTheTagMoves
+$ stackmon check --json
+  demo         api        1.0.0      digest-drift       
+--- docker available: true ---
+
+### TestCheckDetectsDigestDriftWhenTheTagMoves
+$ stackmon check --fail-on-update
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS        DETAIL
+demo   api      1.0.0    digest-drift  same tag, new digest upstream
+--- exit 0 ---
+
+### TestCheckDetectsDigestDriftWhenTheTagMoves
+$ stackmon check --fail-on-update --drift-too
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS        DETAIL
+demo   api      1.0.0    digest-drift  same tag, new digest upstream
+--- exit 2 ---
+
+### TestCheckReportsNotDeployedWhenTheRunningImageDiffers
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsNotDeployedWhenTheRunningImageDiffers
+$ stackmon check --json
+  demo         api        1.0.0      not-deployed       
+--- docker available: true ---
+
+### TestCheckReportsNotDeployedWhenTheRunningImageDiffers
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS        DETAIL
+demo   api      1.0.0    not-deployed  declared pin not yet deployed
+--- exit 0 ---
+
+### TestCheckAcceptsAnyRecordedRepoDigestAsDeployed
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckAcceptsAnyRecordedRepoDigestAsDeployed
+$ stackmon check --json
+  demo         api        1.0.0      current            
+--- docker available: true ---
+
+### TestCheckReportsStaleDeploymentForAFloatingTag
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsStaleDeploymentForAFloatingTag
+$ stackmon check --json
+  demo         api        latest     stale-deployment   
+--- docker available: true ---
+
+### TestCheckReportsStaleDeploymentForAFloatingTag
+$ stackmon check --fail-on-update
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      latest   stale-deployment  running image older than the tag now resolves to
+--- exit 0 ---
+
+### TestCheckReportsCurrentWhenARunningTagMatchesTheRegistry
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsCurrentWhenARunningTagMatchesTheRegistry
+$ stackmon check --json
+  demo         api        latest     current            
+--- docker available: true ---
+
+### TestCheckReportsNotRunningWhenNoContainerExists
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsNotRunningWhenNoContainerExists
+$ stackmon check --json
+  demo         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestCheckReportsNotRunningWhenNoContainerExists
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   api      1.0.0    not-running  no running container
+--- exit 0 ---
+
+### TestCheckDoesNotCallAContainerWithoutDigestsNotRunning
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckDoesNotCallAContainerWithoutDigestsNotRunning
+$ stackmon check --json
+  demo         api        1.0.0      current            
+--- docker available: true ---
+
+### TestCheckReportsUnknownForAnImageTheRegistryDoesNotHave
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsUnknownForAnImageTheRegistryDoesNotHave
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      -        unknown  registry: fetching REGISTRY/ghost:1.0.0: GET http://REGISTRY/v2/ghost/manifests/1.0.0: NAME_UNKNOWN: Unknown name
+--- exit 0 ---
+
+### TestCheckReportsUnknownForAnImageTheRegistryDoesNotHave
+$ stackmon check --json
+  demo         api        -          unknown            : registry: fetching REGISTRY/ghost:1.0.0: GET http://REGISTRY/v2/ghost/manifests/1.0.0: NAME_UNKNOWN: Unknown name
+--- docker available: true ---
+
+### TestCheckKeepsGoingWhenOneRegistryIsUnreachable
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckKeepsGoingWhenOneRegistryIsUnreachable
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+  demo         legacy     -          unknown            : registry: fetching 127.0.0.1:1/ghost:1.0.0: Get "https://127.0.0.1:1/v2/": dial tcp 127.0.0.1:1: connect: connection refused; Get "http://127.0.0.1:1/v2/": dial tcp 127.0.0.1:1: connect: connection refused
+--- docker available: true ---
+
+### TestCheckKeepsGoingWhenOneRegistryIsUnreachable
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor)
+demo   legacy   -        unknown           registry: fetching 127.0.0.1:1/ghost:1.0.0: Get "https://127.0.0.1:1/v2/": dial tcp 127.0.0.1:1: connect: connection refused; Get "http://127.0.0.1:1/v2/": dial tcp 127.0.0.1:1: connect: connection refused
+--- exit 0 ---
+
+### TestCheckReportsUnknownWhenAConstraintMatchesNoTags
+$ stackmon enroll ROOT/srv/db
+--- stdout ---
+enrolled db (ROOT/srv/db/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsUnknownWhenAConstraintMatchesNoTags
+$ stackmon check --json
+  db           postgres   pg15       unknown            : no tags matched the constraint (pg99*)
+--- docker available: true ---
+
+### TestCheckSaysSoWhenDockerIsUnavailable
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckSaysSoWhenDockerIsUnavailable
+$ stackmon check --json
+  demo         api        1.0.0      current            
+--- docker available: false ---
+
+### TestCheckSaysSoWhenDockerIsUnavailable
+$ stackmon check
+--- stdout ---
+note: docker socket unavailable; running-container state was not checked
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  
+--- exit 0 ---
+
+### TestCheckWarnsAboutAStackThatMoved
+$ stackmon enroll ROOT/srv/gone
+--- stdout ---
+enrolled gone (ROOT/srv/gone/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWarnsAboutAStackThatMoved
+$ stackmon enroll ROOT/srv/here
+--- stdout ---
+enrolled here (ROOT/srv/here/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWarnsAboutAStackThatMoved
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+here   api      1.0.0    not-running  no running container
+--- stderr ---
+warning: enrolled stack "gone" no longer exists at ROOT/srv/gone/compose.yaml; re-enroll it or run 'stackmon unenroll gone'
+--- exit 0 ---
+
+### TestCheckWarnsAboutAStackThatMoved
+$ stackmon check --json
+  here         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestCheckWarnsAboutAnUnparseableStack
+$ stackmon enroll ROOT/srv/broken
+--- stdout ---
+enrolled broken (ROOT/srv/broken/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWarnsAboutAnUnparseableStack
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWarnsAboutAnUnparseableStack
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   api      1.0.0    not-running  no running container
+--- stderr ---
+warning: broken: compose: loading ROOT/srv/broken/compose.yaml: error while interpolating services.api.image: required variable REQUIRED_IMAGE is missing a value: must be set
+--- exit 0 ---
+
+### TestCheckWarnsAboutAnUnparseableStack
+$ stackmon check --json
+  demo         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestCheckKeepsSiblingsOfAnUnreadableService
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckKeepsSiblingsOfAnUnreadableService
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor)
+--- stderr ---
+warning: demo: compose: service "web" in ROOT/srv/demo/compose.yaml: offset [28:53] holds "|-\n      REGISTRY/", want image text "REGISTRY/app:1.0.0"
+--- exit 0 ---
+
+### TestCheckKeepsSiblingsOfAnUnreadableService
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+
+### TestCheckReadsQuotedInterpolatedAndUnicodeImageValues
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReadsQuotedInterpolatedAndUnicodeImageValues
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   café     1.0.0    update-available  1.1.0 available (minor)
+demo   env      1.0.0    update-available  1.1.0 available (minor)
+demo   quoted   1.0.0    update-available  1.1.0 available (minor)
+--- exit 0 ---
+
+### TestCheckReadsQuotedInterpolatedAndUnicodeImageValues
+$ stackmon check --json
+  demo         café       1.0.0      update-available    -> 1.1.0 (minor)
+  demo         env        1.0.0      update-available    -> 1.1.0 (minor)
+  demo         quoted     1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+
+### TestCheckProbesASharedReferenceOnce
+$ stackmon enroll ROOT/srv/a
+--- stdout ---
+enrolled a (ROOT/srv/a/compose.yaml)
+--- exit 0 ---
+
+### TestCheckProbesASharedReferenceOnce
+$ stackmon enroll ROOT/srv/b
+--- stdout ---
+enrolled b (ROOT/srv/b/compose.yaml)
+--- exit 0 ---
+
+### TestCheckProbesASharedReferenceOnce
+$ stackmon check --json
+  a            api        1.0.0      update-available    -> 1.1.0 (minor)
+  b            api        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+### TestCheckProbesASharedReferenceOnce
+manifest fetches for app:1.0.0 across both stacks: 1
+
+### TestCheckRecoversTheVersionOfADigestOnlyPin
+$ stackmon enroll ROOT/srv/edge
+--- stdout ---
+enrolled edge (ROOT/srv/edge/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRecoversTheVersionOfADigestOnlyPin
+$ stackmon check --json
+  edge         proxy      v3.7.10    update-available    -> v3.9.0 (minor)
+--- docker available: true ---
+
+### TestCheckOffersNothingForAnUnlabelledDigestOnlyPin
+$ stackmon enroll ROOT/srv/edge
+--- stdout ---
+enrolled edge (ROOT/srv/edge/compose.yaml)
+--- exit 0 ---
+
+### TestCheckOffersNothingForAnUnlabelledDigestOnlyPin
+$ stackmon check --json
+  edge         proxy      -          current            
+--- docker available: true ---
+
+### TestCheckRetainsEveryApplicableStatus
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRetainsEveryApplicableStatus
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+
+### TestCheckComparesMultiArchImagesByTheirIndexDigest
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckComparesMultiArchImagesByTheirIndexDigest
+$ stackmon check --json
+  demo         api        v1         update-available    -> v1.1.0 (minor)
+--- docker available: true ---
+
+### TestCheckLooksUpASharedRunningImageOnce
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckLooksUpASharedRunningImageOnce
+$ stackmon check --json
+  demo         a          1.0.0      stale-deployment   
+  demo         b          1.0.0      stale-deployment   
+--- docker available: true ---
+### TestCheckLooksUpASharedRunningImageOnce
+image lookups for 2 containers sharing one image: 1
+
+### TestCheckRejectsABrokenConfig
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRejectsABrokenConfig
+$ stackmon check
+--- stderr ---
+error: config: parsing HOME/.config/stackmon/config.toml: toml: line 1 (last key "roots"): unexpected EOF; expected value
+--- exit 1 ---
+
+### TestCheckRejectsABrokenConfig
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRejectsABrokenConfig
+$ stackmon check
+--- stderr ---
+error: config: concurrency must be positive, got 0
+--- exit 1 ---
+
+### TestCheckRejectsABrokenConfig
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRejectsABrokenConfig
+$ stackmon check
+--- stderr ---
+error: config: concurrency must be positive, got -1
+--- exit 1 ---
+
+### TestCheckRejectsABrokenConfig
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRejectsABrokenConfig
+$ stackmon check
+--- stderr ---
+error: config: parsing HOME/.config/stackmon/config.toml: toml: line 2 (last key "bump.digest"): incompatible types: TOML value has type string; destination has type boolean
+--- exit 1 ---
+
+### TestCheckReadsABareRepositoryNameAsLatest
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReadsABareRepositoryNameAsLatest
+$ stackmon check --json
+  demo         api        latest     current            
+--- docker available: true ---
+
+### TestCheckKeepsCandidateTagsInOneChannel
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckKeepsCandidateTagsInOneChannel
+$ stackmon check --json
+  demo         api        18-alpine  update-available    -> 19.1-alpine (major)
+--- docker available: true ---
+
+### TestCheckKeepsVersionlessGlobMatches
+$ stackmon enroll ROOT/srv/db
+--- stdout ---
+enrolled db (ROOT/srv/db/compose.yaml)
+--- exit 0 ---
+
+### TestCheckKeepsVersionlessGlobMatches
+$ stackmon check --json
+  db           postgres   pg15       update-available    -> pg18.1 (major)
+--- docker available: true ---
+
+### TestCheckHandlesANonNormalisedStackName
+$ stackmon enroll ROOT/srv/Nextcloud
+--- stdout ---
+enrolled Nextcloud (ROOT/srv/Nextcloud/compose.yaml)
+--- exit 0 ---
+
+### TestCheckHandlesANonNormalisedStackName
+$ stackmon check Nextcloud
+--- stdout ---
+STACK      SERVICE  VERSION  STATUS            DETAIL
+Nextcloud  cloud    1.0.0    update-available  1.1.0 available (minor)
+--- exit 0 ---
+
+### TestDiscoverFindsStacksBelowConfiguredRoots
+$ stackmon discover
+--- stdout ---
+NAME     STATE      PATH
+adguard  available  ROOT/srv/adguard/compose.yaml
+both     available  ROOT/srv/both/compose.yaml
+srv      available  ROOT/srv/compose.yaml
+traefik  available  ROOT/srv/traefik/docker-compose.yml
+--- exit 0 ---
+
+### TestDiscoverMarksEnrolledStacks
+$ stackmon enroll ROOT/srv/adguard
+--- stdout ---
+enrolled adguard (ROOT/srv/adguard/compose.yaml)
+--- exit 0 ---
+
+### TestDiscoverMarksEnrolledStacks
+$ stackmon discover
+--- stdout ---
+NAME     STATE      PATH
+adguard  enrolled   ROOT/srv/adguard/compose.yaml
+media    available  ROOT/srv/media/compose.yaml
+--- exit 0 ---
+
+### TestDiscoverFindsRunningProjectsWithNoRootsConfigured
+$ stackmon discover
+--- stdout ---
+NAME   STATE      PATH
+media  available  ROOT/srv/media/compose.yaml
+--- exit 0 ---
+
+### TestDiscoverFindsRunningProjectsWithNoRootsConfigured
+$ stackmon enroll --running media
+--- stdout ---
+enrolled media (ROOT/srv/media/compose.yaml)
+--- exit 0 ---
+
+### TestDiscoverFindsRunningProjectsWithNoRootsConfigured
+$ stackmon discover
+--- stdout ---
+NAME   STATE     PATH
+media  enrolled  ROOT/srv/media/compose.yaml
+--- exit 0 ---
+
+### TestDiscoverIgnoresIncompleteDockerProjects
+$ stackmon discover
+--- stdout ---
+NAME  STATE  PATH
+--- exit 0 ---
+
+### TestEnrollByPathChecksTheDirectoryFirst
+$ stackmon enroll ROOT/empty
+--- stderr ---
+error: no compose file in ROOT/empty (looked for [compose.yaml compose.yml docker-compose.yaml docker-compose.yml])
+--- exit 1 ---
+
+### TestEnrollRejectsADuplicateName
+$ stackmon enroll ROOT/srv/traefik
+--- stdout ---
+enrolled traefik (ROOT/srv/traefik/compose.yaml)
+--- exit 0 ---
+
+### TestEnrollRejectsADuplicateName
+$ stackmon enroll ROOT/other/traefik
+--- stderr ---
+error: inventory: "traefik" is already enrolled from ROOT/srv/traefik; pass --name to choose a different name
+--- exit 1 ---
+
+### TestEnrollRejectsADuplicateName
+$ stackmon enroll ROOT/other/traefik --name edgebox
+--- stdout ---
+enrolled edgebox (ROOT/other/traefik/compose.yaml)
+--- exit 0 ---
+
+### TestEnrollRejectsADuplicateName
+$ stackmon inventory list
+--- stdout ---
+NAME     PATH                                                       ENROLLED
+traefik  ROOT/srv/traefik/compose.yaml    DATE
+edgebox  ROOT/other/traefik/compose.yaml  DATE
+--- exit 0 ---
+
+### TestEnrollRunningRejectsAmbiguousArguments
+$ stackmon enroll ROOT/srv/media --running media
+--- stderr ---
+error: --running cannot be combined with a path
+--- exit 1 ---
+
+### TestEnrollRunningRejectsAmbiguousArguments
+$ stackmon enroll --running media --name alias
+--- stderr ---
+error: --name cannot be combined with --running
+--- exit 1 ---
+
+### TestEnrollRunningRejectsAmbiguousArguments
+$ stackmon enroll --running nosuchproject
+--- stderr ---
+error: running Compose project "nosuchproject" was not found
+--- exit 1 ---
+
+### TestEnrollRunningNeedsADaemon
+$ stackmon enroll --running media
+--- stderr ---
+error: Docker is unavailable; cannot find running Compose project "media"
+--- exit 1 ---
+
+### TestUnenrollRemovesAStack
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestUnenrollRemovesAStack
+$ stackmon unenroll demo
+--- stdout ---
+unenrolled demo
+--- exit 0 ---
+
+### TestUnenrollRemovesAStack
+$ stackmon unenroll demo
+--- stderr ---
+error: inventory: "demo" is not enrolled
+--- exit 1 ---
+
+### TestUnenrollRemovesAStack
+$ stackmon inventory list
+--- stdout ---
+NAME  PATH  ENROLLED
+--- exit 0 ---
+
+### TestCheckNamesAStackThatIsNotEnrolled
+$ stackmon check ghost
+--- stderr ---
+error: "ghost" is not enrolled; run 'stackmon discover' to see what is available
+--- exit 1 ---
+
+### TestShellCompletionSuggestsStacksAndServices
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestShellCompletionSuggestsStacksAndServices
+$ stackmon enroll ROOT/srv/beta
+--- stdout ---
+enrolled beta (ROOT/srv/beta/compose.yaml)
+--- exit 0 ---
+
+### TestShellCompletionSuggestsStacksAndServices
+$ stackmon __complete check 
+--- stdout ---
+alpha	ROOT/srv/alpha/compose.yaml
+beta	ROOT/srv/beta/compose.yaml
+:4
+--- stderr ---
+Completion ended with directive: ShellCompDirectiveNoFileComp
+--- exit 0 ---
+
+### TestShellCompletionSuggestsStacksAndServices
+$ stackmon __complete check alpha 
+--- stdout ---
+beta	ROOT/srv/beta/compose.yaml
+:4
+--- stderr ---
+Completion ended with directive: ShellCompDirectiveNoFileComp
+--- exit 0 ---
+
+### TestShellCompletionSuggestsStacksAndServices
+$ stackmon __complete bump alpha 
+--- stdout ---
+db
+web
+:4
+--- stderr ---
+Completion ended with directive: ShellCompDirectiveNoFileComp
+--- exit 0 ---
+
+### TestShellCompletionSuggestsStacksAndServices
+$ stackmon __complete bump nosuchstack 
+--- stdout ---
+:4
+--- stderr ---
+Completion ended with directive: ShellCompDirectiveNoFileComp
+--- exit 0 ---
+
+### TestInventorySurvivesAFreshProcess
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestInventorySurvivesAFreshProcess
+$ stackmon unenroll demo
+--- stdout ---
+unenrolled demo
+--- exit 0 ---
+
+### TestInventorySurvivesAFreshProcess
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestDiscoverReportsAFailingDaemon
+$ stackmon discover
+--- stderr ---
+error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 1 ---
+
+### TestShowExplainsWhyADigestChanged/rebuilt_from_the_same_revision
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowExplainsWhyADigestChanged/rebuilt_from_the_same_revision
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:4a4c4088da48ddab3ce62e5c3c964d3ccee6b4a339b41c3eca94816ab97e56c7
+  status:    digest-drift
+  version:   1.0.0
+
+  digest change
+    declared: sha256:4a4c4088da48ddab3ce62e5c3c964d3ccee6b4a339b41c3eca94816ab97e56c7
+    registry: sha256:d0e59a5b5537943a7f386bf3d4a624c818318b22c081f03a0692df5b136f17f0
+    built:    DATE -> DATE
+    rebuilt from the same upstream revision (abc123de): base image or dependency refresh
+
+--- exit 0 ---
+
+### TestShowExplainsWhyADigestChanged/upstream_revision_moved
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowExplainsWhyADigestChanged/upstream_revision_moved
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:4a4c4088da48ddab3ce62e5c3c964d3ccee6b4a339b41c3eca94816ab97e56c7
+  status:    digest-drift
+  version:   1.0.0
+
+  digest change
+    declared: sha256:4a4c4088da48ddab3ce62e5c3c964d3ccee6b4a339b41c3eca94816ab97e56c7
+    registry: sha256:d1d0d06b5ee0bca0c826854f46d65c8d0ccadd4da2d30d5d91fc777e3e4fb26a
+    built:    DATE -> DATE
+    upstream revision moved: abc123de -> 987654fe
+
+--- exit 0 ---
+
+### TestShowExplainsWhyADigestChanged/no_revision_label_at_all
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowExplainsWhyADigestChanged/no_revision_label_at_all
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:6522022e5b7a95ee0a94d1dcdf298bcb96f919f62127997a0b4b24b289dc7040
+  status:    digest-drift
+  version:   1.0.0
+
+  digest change
+    declared: sha256:6522022e5b7a95ee0a94d1dcdf298bcb96f919f62127997a0b4b24b289dc7040
+    registry: sha256:a224eb95552b25e6471d31e7360dc547338a15d2c862d07e570a5c215ab30a0d
+    built:    DATE -> DATE
+    no revision label, so the cause cannot be determined without pulling
+
+--- exit 0 ---
+
+### TestShowDescribesAnAvailableUpdate
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowDescribesAnAvailableUpdate
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0
+  status:    update-available
+  version:   1.0.0
+  available: 2.0.0 (major)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+--- exit 0 ---
+
+### TestShowListsReleaseNotesBetweenTheDeployedAndAvailableVersions
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowListsReleaseNotesBetweenTheDeployedAndAvailableVersions
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/acme:1.1.0
+  status:    update-available
+  version:   1.1.0
+  available: 1.3.0 (minor)
+
+  release notes
+
+    v1.2.0
+      Second: fixed a leak.
+
+    v1.3.0
+      Third: faster startup.
+
+--- exit 0 ---
+
+### TestShowSaysWhenNoNotesAreAvailable
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowSaysWhenNoNotesAreAvailable
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/acme:1.0.0
+  status:    update-available
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+--- exit 0 ---
+
+### TestShowFallsBackToAConfiguredReleaseRepository
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowFallsBackToAConfiguredReleaseRepository
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/acme:1.0.0
+  status:    update-available
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+
+    v1.1.0
+      From the configured repository.
+
+--- exit 0 ---
+
+### TestShowSurfacesAnUnknownRow
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowSurfacesAnUnknownRow
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/ghost:1.0.0
+  status:    unknown
+  error:     registry: fetching REGISTRY/ghost:1.0.0: GET http://REGISTRY/v2/ghost/manifests/1.0.0: NAME_UNKNOWN: Unknown name
+
+--- exit 0 ---
+
+### TestWhatsNewComparesTheRunningVersionWithTheLatest
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+The release you are running.
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+
+### TestWhatsNewComparesTheRunningVersionWithTheLatest
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+The release you are running.
+
+you are running the latest version
+--- exit 0 ---
+
+### TestWhatsNewOnADevBuildSaysItCannotCompare
+$ stackmon whats-new
+--- stdout ---
+stackmon dev
+
+dev build; latest release is v9.9.9 (run 'stackmon update' to install it)
+--- exit 0 ---
+
+### TestUpdateInstallsAVerifiedRelease
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+updated to v9.9.9
+--- exit 0 ---
+
+### TestUpdateInstallsAVerifiedRelease
+$ stackmon --version
+--- stdout ---
+installed from the release
+--- exit 0 ---
+
+### TestUpdateRefusesAnUnverifiedRelease
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: checksum mismatch for stackmon-linux-amd64
+--- exit 1 ---
+
+### TestUpdateReportsAMissingAssetForThisPlatform
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: release v9.9.9 has no asset for linux/amd64
+--- exit 1 ---

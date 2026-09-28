@@ -18,18 +18,13 @@ import (
 	"github.com/gvwalker/stackmon/internal/registry"
 )
 
-// RegistryProber is the registry surface Build depends on, so that report
-// building is testable without network access.
-type RegistryProber interface {
-	Inspect(ctx context.Context, ref string) (registry.Image, error)
-	Tags(ctx context.Context, repo string) ([]string, error)
-}
-
 // Options configures a run.
 type Options struct {
-	Registry    RegistryProber
-	Docker      local.Prober
-	Config      config.Config
+	Registry *registry.Client
+	Docker   *local.Client
+	Config   config.Config
+	// Concurrency bounds simultaneous registry probes; below 1 the default
+	// is used.
 	Concurrency int
 }
 

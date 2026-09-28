@@ -1,5 +1,0 @@
-services:
-  web:
-    image: ghcr.io/karakeep-app/karakeep:${KARAKEEP_VERSION:-release}
-  chrome:
-    image: ghcr.io/karakeep-app/karakeep-chrome:release

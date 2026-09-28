@@ -36,6 +36,10 @@ _Avoid_: Scan, crawl.
 One container definition within a stack's compose file, identifying one image reference to track.
 _Avoid_: Container (a service is declared; a container is the running instance of it).
 
+**Replica**:
+One running container instance of a Service within its Docker Compose project. A Service can have multiple Replicas whose deployed image content differs; agreement by one Replica does not establish agreement by all.
+_Avoid_: Service (reserve for the Compose definition).
+
 **Ref**:
 A parsed image reference (repo, tag, digest) and its Shape (tag-only, tag+digest, or digest-only). Purely syntactic — carries no judgment about whether an update exists.
 _Avoid_: Image reference string, pin (reserve "pin" for the literal text `bump` rewrites in the compose file).

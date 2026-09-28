@@ -15,10 +15,6 @@ import (
 )
 
 func newEnrollCmd() *cobra.Command {
-	return newEnrollCmdWithProber(local.New())
-}
-
-func newEnrollCmdWithProber(prober local.Prober) *cobra.Command {
 	var name, running string
 
 	cmd := &cobra.Command{
@@ -42,6 +38,7 @@ func newEnrollCmdWithProber(prober local.Prober) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var dir, file, defaultName string
 			if running != "" {
+				prober := local.New()
 				if !prober.Available() {
 					return fmt.Errorf("Docker is unavailable; cannot find running Compose project %q", running)
 				}

@@ -44,18 +44,16 @@ func New(token string) *Client {
 	if token != "" {
 		gh = gh.WithAuthToken(token)
 	}
-	return &Client{gh: gh, hc: http.DefaultClient}
-}
-
-// NewWithBaseURL points the client at an alternate API root, for tests.
-func NewWithBaseURL(token, baseURL string) (*Client, error) {
-	c := New(token)
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return nil, fmt.Errorf("selfupdate: parsing base URL: %w", err)
+	// STACKMON_GITHUB_API names an alternate API root: GitHub Enterprise, a
+	// mirror, or a test fixture. An unusable value is ignored rather than
+	// fatal -- a typo must not make an update check report the running
+	// version as current.
+	if raw := os.Getenv("STACKMON_GITHUB_API"); raw != "" {
+		if u, err := url.Parse(strings.TrimSuffix(raw, "/") + "/"); err == nil {
+			gh.BaseURL = u
+		}
 	}
-	c.gh.BaseURL = u
-	return c, nil
+	return &Client{gh: gh, hc: http.DefaultClient}
 }
 
 // Latest returns the newest published release and whether it is newer than

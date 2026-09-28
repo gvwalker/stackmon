@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -23,12 +24,6 @@ type Release struct {
 	Published time.Time
 }
 
-// Fetcher is the surface report building depends on, so that it can be tested
-// without network access.
-type Fetcher interface {
-	Between(ctx context.Context, repo, from, to string) ([]Release, error)
-}
-
 // Client fetches releases from GitHub.
 type Client struct {
 	gh *github.Client
@@ -41,18 +36,15 @@ func New(token string) *Client {
 	if token != "" {
 		gh = gh.WithAuthToken(token)
 	}
-	return &Client{gh: gh}
-}
-
-// NewWithBaseURL points the client at an alternate API root, for tests.
-func NewWithBaseURL(token, baseURL string) (*Client, error) {
-	c := New(token)
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return nil, fmt.Errorf("notes: parsing base URL: %w", err)
+	// STACKMON_GITHUB_API names an alternate API root: GitHub Enterprise, a
+	// mirror, or a test fixture. An unusable value is ignored rather than
+	// fatal -- a typo in an environment variable must not stop the report.
+	if raw := os.Getenv("STACKMON_GITHUB_API"); raw != "" {
+		if u, err := url.Parse(strings.TrimSuffix(raw, "/") + "/"); err == nil {
+			gh.BaseURL = u
+		}
 	}
-	c.gh.BaseURL = u
-	return c, nil
+	return &Client{gh: gh}
 }
 
 // RepoFromSource converts an org.opencontainers.image.source URL into

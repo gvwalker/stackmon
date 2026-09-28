@@ -22,12 +22,6 @@ import (
 // printed alongside the report built from the stacks that did parse, so one
 // unparseable compose file never hides every other stack's status.
 func loadStackReport(cmd *cobra.Command, names []string) (report.Report, []compose.Stack, error) {
-	return loadStackReportWithClients(cmd, names, registry.New(), local.New())
-}
-
-// loadStackReportWithClients keeps command tests on the production loading
-// path while allowing deterministic registry and Docker probes.
-func loadStackReportWithClients(cmd *cobra.Command, names []string, reg report.RegistryProber, docker local.Prober) (report.Report, []compose.Stack, error) {
 	inv, _, err := loadInventory()
 	if err != nil {
 		return report.Report{}, nil, err
@@ -58,8 +52,8 @@ func loadStackReportWithClients(cmd *cobra.Command, names []string, reg report.R
 	}
 
 	r := report.Build(ctx, parsed, report.Options{
-		Registry:    reg,
-		Docker:      docker,
+		Registry:    registry.New(),
+		Docker:      local.New(),
 		Config:      cfg,
 		Concurrency: cfg.Concurrency,
 	})

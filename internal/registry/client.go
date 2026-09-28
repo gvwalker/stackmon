@@ -50,14 +50,6 @@ func New() *Client {
 	return &Client{keychain: authn.DefaultKeychain}
 }
 
-// newClient builds a Client with an explicit keychain. It exists so tests
-// can use authn.Anonymous instead of depending on the machine's Docker
-// credential configuration, which a misconfigured or slow credential
-// helper could otherwise make fail or hang for unrelated reasons.
-func newClient(kc authn.Keychain) *Client {
-	return &Client{keychain: kc}
-}
-
 func (c *Client) options(ctx context.Context) []remote.Option {
 	return []remote.Option{
 		remote.WithContext(ctx),
