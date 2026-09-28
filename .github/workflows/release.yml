@@ -145,8 +145,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.plan.outputs.version }}
+          ACTOR: ${{ github.actor }}
         run: |
-          git tag -a "$VERSION" -m "stackmon $VERSION" "$SHA"
+          # An annotated tag needs a committer, and a runner has no git
+          # identity. Attribute the tag to whoever dispatched the release, so
+          # it reads the same as the tags made by hand: the account's name,
+          # and the noreply address its commits already use.
+          tagger_name=$(gh api user --jq .name)
+          tagger_email="$ACTOR@users.noreply.github.com"
+          git -c user.name="$tagger_name" -c user.email="$tagger_email" \
+            tag -a "$VERSION" -m "stackmon $VERSION" "$SHA"
           git push origin "refs/tags/$VERSION"
 
       - name: Create GitHub Release
