@@ -64,12 +64,20 @@ jobs:
         env:
           VERSION: ${{ steps.plan.outputs.version }}
           PREVIOUS: ${{ steps.plan.outputs.previous_tag }}
+          PR_COUNT: ${{ steps.plan.outputs.prs }}
+          NOTED: ${{ steps.plan.outputs.noted }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           {
             echo "## Release plan"
             echo
             echo "\`${PREVIOUS:-none}\` -> \`${VERSION:-planning failed, see the log}\`"
+            # Say what was left out, so a short changelog is a decision on
+            # record rather than a gap someone has to notice.
+            if [ -n "$PR_COUNT" ] && [ "$NOTED" != "$PR_COUNT" ]; then
+              echo
+              echo "$((PR_COUNT - NOTED)) of $PR_COUNT merged PR(s) changed only how the project is built and are not in the notes."
+            fi
             if [ "$DRY_RUN" = 'true' ]; then
               echo
               echo 'Dry run: nothing was tagged, built, or published.'
