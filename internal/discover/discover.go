@@ -112,7 +112,10 @@ func DockerCandidates(containers []local.Container, inv inventory.Inventory) []C
 	seenProjects := map[string]bool{}
 	out := make([]Candidate, 0, len(containers))
 	for _, c := range containers {
-		if c.Project == "" || seenProjects[c.Project] {
+		// A `docker compose run` container is a finished job, not a project
+		// that is up: a project left holding nothing but one is not a stack
+		// anyone wants to enroll.
+		if c.Project == "" || c.OneOff || seenProjects[c.Project] {
 			continue
 		}
 		if c.ProjectWorkingDir == "" || !filepath.IsAbs(c.ProjectWorkingDir) || strings.TrimSpace(c.ProjectConfigFiles) == "" {

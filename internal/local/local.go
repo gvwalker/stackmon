@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -28,6 +29,7 @@ const (
 	labelProjectWorkingDir  = "com.docker.compose.project.working_dir"
 	labelProjectConfigFiles = "com.docker.compose.project.config_files"
 	labelService            = "com.docker.compose.service"
+	labelOneOff             = "com.docker.compose.oneoff"
 )
 
 // Container is one running container started by Compose.
@@ -52,6 +54,10 @@ type Container struct {
 	// exactly the declared digest. Empty when the image has no
 	// RepoDigests entry, e.g. built locally and never pushed.
 	RepoDigests []string
+	// OneOff marks a container started by `docker compose run`. Such a
+	// container is a finished job, not a Replica of a running Service, so
+	// consumers that reason about a project's up state must skip it.
+	OneOff bool
 }
 
 // Client queries the Docker Engine API.
@@ -110,6 +116,8 @@ type apiImageInspect struct {
 
 // Containers lists running containers started by Compose. Containers without
 // Compose labels are omitted, since they cannot be matched to a service.
+// One-off `docker compose run` containers are included and flagged, because
+// whether one counts is the caller's decision, not the reader's.
 func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 	// The host is ignored by the unix dialer but required by net/http.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/v1.44/containers/json", nil)
@@ -160,6 +168,7 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 			Service:            service,
 			Image:              r.Image,
 			RepoDigests:        digs,
+			OneOff:             strings.EqualFold(r.Labels[labelOneOff], "true"),
 		})
 	}
 	return out, nil
@@ -203,11 +212,35 @@ func (c *Client) repoDigests(ctx context.Context, imageID string) []string {
 }
 
 // Index keys containers by "project/service" for lookup during report
-// building.
-func Index(cs []Container) map[string]Container {
-	out := make(map[string]Container, len(cs))
+// building, keeping every replica of a service. A service can have several
+// running replicas whose images differ, so collapsing them into one entry --
+// last one wins, in whatever order the daemon happened to answer -- would hide
+// a stale deployment behind a fresh one. One-off containers are excluded: they
+// are not replicas of a running service.
+//
+// Each key's slice is sorted, so a report built from the same containers is
+// the same report whichever order Docker returned them in.
+func Index(cs []Container) map[string][]Container {
+	out := make(map[string][]Container, len(cs))
 	for _, c := range cs {
-		out[c.Project+"/"+c.Service] = c
+		if c.OneOff {
+			continue
+		}
+		key := c.Project + "/" + c.Service
+		out[key] = append(out[key], c)
+	}
+	for key, replicas := range out {
+		sort.Slice(replicas, func(i, j int) bool { return less(replicas[i], replicas[j]) })
+		out[key] = replicas
 	}
 	return out
+}
+
+// less orders replicas by image reference, then by the digest set, so
+// deterministic output does not depend on the daemon's ordering.
+func less(a, b Container) bool {
+	if a.Image != b.Image {
+		return a.Image < b.Image
+	}
+	return strings.Join(a.RepoDigests, ",") < strings.Join(b.RepoDigests, ",")
 }

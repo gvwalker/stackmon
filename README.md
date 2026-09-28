@@ -7,7 +7,9 @@ It is read-only by default. Only `stackmon bump` changes a Compose file, and sta
 ## Features
 
 - Discover Compose stacks under configured roots and from currently running Compose containers, then explicitly enroll only the stacks to monitor.
+- Match an enrolled stack to its running Docker Compose project by the paths Compose recorded, independently of the stack's name, and say so rather than guess when a match is ambiguous.
 - Check declared image references against their registries and, when accessible, against the Docker daemon's running containers.
+- Compare every running replica of a service, so a stale container cannot hide behind a fresh one.
 - Identify version updates, digest drift, stale deployments, undeployed changes, stopped services, and per-image probe failures.
 - Infer safe version candidates from semantic-version tags while preserving tag prefixes and variants; use explicit glob constraints for opaque tags such as `pg15`.
 - Show image-level digest details, OCI-label changes, and GitHub release notes.
@@ -89,17 +91,33 @@ stackmon discover
 
 Lists Compose stacks found below configured `roots` and in currently running Compose containers, marking each as `available` or `enrolled`. Filesystem discovery searches to a depth of three, skips dot-directories, and uses Compose filename precedence: `compose.yaml`, `compose.yml`, `docker-compose.yaml`, then `docker-compose.yml`. Docker-only candidates are shown even when no roots are configured. If Docker is unavailable, root discovery still works.
 
-### `enroll`, `unenroll`, and `inventory list`
+### `enroll`, `unenroll`, `inventory list`, and `inventory set-project`
 
 ```sh
 stackmon enroll /srv/compose/traefik
 stackmon enroll /srv/compose/another-traefik --name edge-traefik
+stackmon enroll /srv/compose/traefik --project traefik-prod
 stackmon enroll --running media
 stackmon inventory list
+stackmon inventory set-project edge-traefik traefik-prod
+stackmon inventory set-project edge-traefik --clear
 stackmon unenroll traefik
 ```
 
 `enroll --running <project>` resolves the Compose project's working directory and Compose file from labels on its running containers. It requires Docker and cannot be combined with a path. An enrolled stack is identified by its name and absolute Compose path. The default name for path enrollment is the directory basename; use `--name` when two paths have the same basename.
+
+A stack's name is a display name. Docker Compose derives its project name from the directory, from `name:` in the compose file, or from `docker compose -p`, and `--name` gives the stack yet another name, so the enrolled name is not evidence of which project is running. Stackmon therefore matches a stack to a running project by the working directory and compose file Compose recorded on that project's containers, comparing them as paths.
+
+That matching is a guess, and stackmon treats it as one:
+
+- A project whose name matches the enrolled name is not preferred, and a project whose name differs is not rejected.
+- If several running projects match the same stack, the row is `unknown` with a message naming them and the `set-project` command that settles it. It is never the first one.
+- If the running projects record no working directory or config file, identity cannot be established at all, and the row is `unknown` rather than `not-running`.
+- A stack that Docker reports no project for is `not-running`, which is a fact rather than a doubt.
+
+`--project` (on `enroll`) and `inventory set-project` state the binding explicitly, which takes precedence over matching: a bound project is reported on as it is, and is never replaced by a project that happens to match the stack's paths. `enroll --running` records the project it enrolled. `inventory set-project <stack> --clear` removes the binding and goes back to automatic matching. All three preserve the stack's name, compose path, and enrollment date. Project names are validated against Compose's own rules. Existing inventory files have no binding and keep working.
+
+`inventory list` shows a stack's bound project, or `auto` when it is matched automatically.
 
 ### `check`
 
@@ -113,7 +131,7 @@ stackmon check --fail-on-update --drift-too
 
 Checks every enrolled stack, or only the supplied stack names. Registry and Docker failures degrade individual rows to `unknown`; they do not hide the rest of the report. Compose parse failures and missing enrolled paths are printed as warnings alongside the usable results.
 
-`--json` emits the report as JSON. `--fail-on-update` returns exit code `2` if an `update-available` result exists; `--drift-too` also treats `digest-drift` as an update condition. Use these options for scheduled checks:
+`--json` emits the report as JSON, including the Compose project each row was matched to, whether that project was bound by enrollment or matched from Docker's labels, and every running replica of the service with the counts of replicas that match, differ, or could not be judged. `--fail-on-update` returns exit code `2` if an `update-available` result exists; `--drift-too` also treats `digest-drift` as an update condition. Use these options for scheduled checks:
 
 ```sh
 stackmon check --fail-on-update >/var/log/stackmon.log
@@ -131,7 +149,7 @@ stackmon show traefik
 stackmon show traefik --github-token "$GITHUB_TOKEN"
 ```
 
-Shows per-image detail for one enrolled stack, including declared, registry, and running digests; relevant OCI-label changes; and release notes between the current and candidate versions. Release-note lookup is best-effort. A GitHub token only raises the GitHub API rate limit; stackmon also discovers source repositories from image metadata or configured overrides.
+Shows per-image detail for one enrolled stack, including declared, registry, and running digests; the Compose project the running state came from; every running replica and how it compared; relevant OCI-label changes; and release notes between the current and candidate versions. Release-note lookup is best-effort. A GitHub token only raises the GitHub API rate limit; stackmon also discovers source repositories from image metadata or configured overrides.
 
 ### `bump`
 
@@ -197,15 +215,18 @@ Each image gets one primary status. When several conditions apply, stackmon prio
 | `current` | Declared image, running image, and registry agree. |
 | `update-available` | A newer tag matches the inferred or configured constraint. The report classifies it as patch, minor, or major. |
 | `digest-drift` | The same declared tag now resolves to a different upstream digest. |
-| `not-deployed` | The Compose-file digest differs from the image currently used by the running container. |
+| `not-deployed` | The Compose-file digest differs from the image currently used by a running container. |
 | `stale-deployment` | A running container uses an older digest than its floating tag now resolves to. |
-| `not-running` | No container exists for the Compose service. Registry comparison still runs. |
-| `unknown` | A required per-image probe failed; the row includes a reason. |
+| `not-running` | No container exists for the Compose service in the matched project. Registry comparison still runs. |
+| `unknown` | A required per-image probe failed, the stack's Compose project could not be established, or a replica could not be judged; the row includes a reason. |
+
+A service can have several running replicas, and they need not agree. Every replica is compared against the declared pin, or against the registry digest for a floating reference, and each keeps its own digest set: a replica that matches says nothing about the replicas beside it. Any replica that differs makes the service `not-deployed` or `stale-deployment`, whatever its siblings say. A replica with no recorded digest cannot be judged, so it is counted as unknown: it keeps the verdict off `current` without overriding a known mismatch, and the counts appear in the table, the detail view, and `--json`. `docker compose run` containers are not replicas and never make a stopped service look up.
 
 A Docker socket is optional. If it is absent or unreadable, stackmon produces a file-and-registry report without running-container comparisons and states that limitation in the output. Set `STACKMON_DOCKER_SOCKET` to read a daemon on a non-default path, such as a rootless Docker socket. Docker credentials are read from `~/.docker/config.json`, including configured credential helpers; stackmon stores no registry credentials. Set `STACKMON_GITHUB_API` to point the release-notes and self-update lookups at a GitHub Enterprise API root.
 
 - Monitoring begins only after explicit enrollment. A new directory under a configured root or a newly observed running container never silently joins checks.
 - `discover` combines configured-root results with running Compose projects when Docker is available. A Docker-only stack may be enrolled with `enroll --running <project>`.
+- Running state is read from the Compose project a stack is bound or matched to, and Docker is only ever read: stackmon does not start, stop, or re-create a container.
 - Stack paths may sit outside discovery roots; roots are a discovery convenience, not an enrollment restriction.
 - Registry requests are concurrent up to `concurrency`, and repeated image references are deduplicated within a check.
 - Floating or opaque tags are tracked for digest changes unless a safe candidate constraint exists. Stackmon does not guess a major-version migration.

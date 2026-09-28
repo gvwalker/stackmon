@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -190,11 +191,19 @@ type env struct {
 	docker *fakeDocker
 	gh     *fakeGitHub
 	over   map[string]string
+
+	mu sync.Mutex
+	// stackPaths records the compose file of every stack written under the
+	// discovery root, keyed by its directory name, so the fake daemon can
+	// report the labels Docker always sets when a project is started from a
+	// directory. A scenario that cares about a project's labels sets them
+	// explicitly instead.
+	stackPaths map[string]string
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	e := &env{t: t, root: fixedLengthTempDir(t), over: map[string]string{}}
+	e := &env{t: t, root: fixedLengthTempDir(t), over: map[string]string{}, stackPaths: map[string]string{}}
 
 	e.hits = &requestLog{next: ggcrr.New(ggcrr.Logger(log.New(io.Discard, "", 0)))}
 	srv := httptest.NewServer(e.hits)
@@ -204,9 +213,18 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e.host = u.Host
-	e.docker = newFakeDocker(t)
+	e.docker = newFakeDocker(t, e.composeFileOf)
 	e.gh = newFakeGitHub(t)
 	return e
+}
+
+// composeFileOf is the compose file belonging to a project whose containers
+// Docker reports, for projects the scenario named after a stack directory.
+func (e *env) composeFileOf(project string) (string, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	path, ok := e.stackPaths[project]
+	return path, ok
 }
 
 // requestLog counts registry requests by method and path, so a scenario can
@@ -381,9 +399,16 @@ func (e *env) config(body string) string {
 }
 
 // stack writes a compose file for a stack under the discovery root and
-// returns its path.
+// returns its path. The path is recorded, so a fake container naming the same
+// project gets the working-directory and config-file labels Compose would
+// really have set.
 func (e *env) stack(name, body string) string {
-	return e.write(filepath.Join(e.stacks(), name, "compose.yaml"), body, 0o644)
+	e.t.Helper()
+	path := e.write(filepath.Join(e.stacks(), name, "compose.yaml"), body, 0o644)
+	e.mu.Lock()
+	e.stackPaths[name] = path
+	e.mu.Unlock()
+	return path
 }
 
 // enroll runs `enroll <path>`.
@@ -534,8 +559,12 @@ type row struct {
 	DeclaredDigest   string `json:"declared_digest"`
 	RegistryDigest   string `json:"registry_digest"`
 	Running          bool
-	RunningDigests   []string `json:"running_digests"`
-	DockerChecked    bool     `json:"docker_checked"`
+	Project          string
+	ProjectBound     bool   `json:"project_bound"`
+	IdentityNote     string `json:"identity_note"`
+	Replicas         []replicaView
+	ReplicaCount     replicaView `json:"replica_comparison"`
+	DockerChecked    bool        `json:"docker_checked"`
 	Version          string
 	Candidate        string
 	CandidateDigest  string   `json:"candidate_digest"`
@@ -547,6 +576,18 @@ type row struct {
 	Status           string
 	Statuses         []string `json:"statuses"`
 	Err              string   `json:"error"`
+}
+
+// replicaView is the same shape whether it describes one running container or
+// the summary of how the service's containers compared.
+type replicaView struct {
+	Image       string   `json:"image"`
+	Digests     []string `json:"digests"`
+	Compared    string   `json:"compared"`
+	Matching    int      `json:"matching"`
+	Mismatching int      `json:"mismatching"`
+	Unknown     int      `json:"unknown"`
+	Incomplete  bool     `json:"incomplete"`
 }
 
 type refView struct {
@@ -588,6 +629,17 @@ func (e *env) checkJSON(args ...string) report {
 		if i.Err != "" {
 			extra = ": " + i.Err
 		}
+		if i.IdentityNote != "" {
+			extra += " [" + i.IdentityNote + "]"
+		}
+		// The replica counts and the digest they were judged against belong
+		// in the artifact: a status of current means something quite
+		// different with two agreeing replicas than with one.
+		if n := i.ReplicaCount.Matching + i.ReplicaCount.Mismatching + i.ReplicaCount.Unknown; n > 0 {
+			extra += fmt.Sprintf(" [replicas %d/%d match, %d differ, %d unknown of %s]",
+				i.ReplicaCount.Matching, n, i.ReplicaCount.Mismatching, i.ReplicaCount.Unknown,
+				shortDigest(i.ReplicaCount.Compared))
+		}
 		fmt.Fprint(&transcript, e.normalize(fmt.Sprintf("  %-12s %-10s %-10s %-18s %s%s\n",
 			i.Stack, i.Service, version, i.Status, move, extra)))
 	}
@@ -605,6 +657,18 @@ func (rep report) image(t *testing.T, stack, service string) row {
 	}
 	t.Fatalf("no row for %s/%s in report: %+v", stack, service, rep.Images)
 	return row{}
+}
+
+// shortDigest keeps a digest recognisable in a transcript line: twelve hex
+// characters identify a digest as well as all sixty-four do.
+func shortDigest(digest string) string {
+	if i := strings.Index(digest, ":"); i >= 0 {
+		digest = digest[i+1:]
+	}
+	if len(digest) > 12 {
+		return digest[:12]
+	}
+	return digest
 }
 
 // enrollStack writes a stack's compose file, enrolls it, and returns the
@@ -814,10 +878,15 @@ type container struct {
 	// hash space from the manifest digests in RepoDigests.
 	ImageID     string
 	RepoDigests []string
+	// OneOff marks a `docker compose run` container.
+	OneOff bool
 }
 
 type fakeDocker struct {
 	sock string
+	// composeFile resolves the compose file a project's containers are
+	// attributed to when the scenario did not spell out the labels.
+	composeFile func(project string) (string, bool)
 
 	mu         sync.Mutex
 	containers []container
@@ -828,9 +897,9 @@ type fakeDocker struct {
 	paths        []string
 }
 
-func newFakeDocker(t *testing.T) *fakeDocker {
+func newFakeDocker(t *testing.T, composeFile func(project string) (string, bool)) *fakeDocker {
 	t.Helper()
-	d := &fakeDocker{}
+	d := &fakeDocker{composeFile: composeFile}
 	// Not t.TempDir(): unix socket paths are length-limited and the
 	// scenario names are long.
 	dir, err := os.MkdirTemp("", "sm")
@@ -861,9 +930,10 @@ func newFakeDocker(t *testing.T) *fakeDocker {
 				"ImageID": c.ImageID,
 				"Labels": map[string]string{
 					"com.docker.compose.project":              c.Project,
-					"com.docker.compose.project.working_dir":  c.WorkingDir,
-					"com.docker.compose.project.config_files": c.ConfigFiles,
+					"com.docker.compose.project.working_dir":  d.labelledWorkingDir(c),
+					"com.docker.compose.project.config_files": d.labelledConfigFiles(c),
 					"com.docker.compose.service":              c.Service,
+					"com.docker.compose.oneoff":               strconv.FormatBool(c.OneOff),
 				},
 			})
 		}
@@ -897,6 +967,30 @@ func (d *fakeDocker) running(cs ...container) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.containers = cs
+}
+
+// labelledWorkingDir and labelledConfigFiles fill in the labels Compose would
+// have set for a project named after a stack directory, so a scenario only has
+// to spell out the labels it actually cares about. An empty value means
+// "Docker recorded nothing here", which is itself a case under test.
+func (d *fakeDocker) labelledWorkingDir(c container) string {
+	if c.WorkingDir != "" {
+		return c.WorkingDir
+	}
+	if path, ok := d.composeFile(c.Project); ok {
+		return filepath.Dir(path)
+	}
+	return ""
+}
+
+func (d *fakeDocker) labelledConfigFiles(c container) string {
+	if c.ConfigFiles != "" {
+		return c.ConfigFiles
+	}
+	if path, ok := d.composeFile(c.Project); ok {
+		return path
+	}
+	return ""
 }
 
 // fail makes the daemon exist but fail every request, which is a different

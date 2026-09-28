@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,13 +57,14 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 	r := Report{Generated: time.Now().UTC()}
 
 	// The running-container signal is optional.
-	running := map[string]local.Container{}
+	var containers []local.Container
 	if opts.Docker != nil && opts.Docker.Available() {
 		if cs, err := opts.Docker.Containers(ctx); err == nil {
 			r.DockerAvailable = true
-			running = local.Index(cs)
+			containers = cs
 		}
 	}
+	running := local.Index(containers)
 
 	// Deduplicate: the same reference in two stacks is probed once.
 	unique := map[string]imageref.Ref{}
@@ -146,8 +148,12 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 	_ = g.Wait() // No goroutine returns an error.
 
 	for _, st := range stacks {
+		// Which Compose project runs this stack is a property of the stack,
+		// not of each service, so it is established once and the same answer
+		// is given to every service in it.
+		identity := resolveIdentity(st, containers, r.DockerAvailable)
 		for _, svc := range st.Services {
-			r.Images = append(r.Images, assemble(st, svc, probes[svc.Ref.Resolved], running, r.DockerAvailable, opts.Config))
+			r.Images = append(r.Images, assemble(st, svc, probes[svc.Ref.Resolved], running, identity, r.DockerAvailable, opts.Config))
 		}
 	}
 
@@ -215,22 +221,111 @@ func constraintFor(cfg config.Config, stack string, ref imageref.Ref) policy.Con
 	return policy.Infer(ref.Tag)
 }
 
-func assemble(st compose.Stack, svc compose.Service, p probe, running map[string]local.Container, dockerUp bool, cfg config.Config) Image {
+// identity is the Compose project one stack's running state comes from, and
+// why that is or is not established.
+type identity struct {
+	project string
+	bound   bool
+	note    string
+}
+
+// resolveIdentity decides which Docker Compose project a stack's services are
+// running in. The enrolled display name is deliberately not consulted: Compose
+// project names come from `name:`, `-p`, or the directory, so a name mismatch
+// says nothing, and a name match proves nothing either.
+//
+// When the daemon was never consulted there is nothing to resolve and nothing
+// to complain about: the running signal is simply absent.
+func resolveIdentity(st compose.Stack, containers []local.Container, dockerUp bool) identity {
+	if !dockerUp {
+		return identity{}
+	}
+	id := local.ResolveProject(containers, st.Project, st.Dir, st.Path())
+	if id.Resolved {
+		return identity{project: id.Project, bound: id.Bound}
+	}
+	// No reason means the daemon reported every running container and none
+	// of them is this stack's compose file: a fact, not a doubt.
+	if id.Reason == "" {
+		return identity{}
+	}
+
+	bind := fmt.Sprintf("stackmon inventory set-project %s <project>", st.Name)
+	switch id.Reason {
+	case local.ReasonAmbiguous:
+		return identity{note: fmt.Sprintf(
+			"ambiguous: %s all run %s; bind the one meant with %q",
+			joinNames(id.Candidates), st.Path(), bind)}
+	default:
+		return identity{note: fmt.Sprintf(
+			"cannot tell which Compose project runs %s: the running projects (%s) record no working directory or config file to match it against; bind it with %q",
+			st.Path(), strings.Join(id.Candidates, ", "), bind)}
+	}
+}
+
+// joinNames lists names the way a person would: "a", "a and b", "a, b and c".
+func joinNames(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+}
+
+// compareReplicas judges every Replica of a service against the digest it is
+// declared at, or -- for a floating reference with no pin -- against the
+// digest the registry currently serves. Each Replica is judged on its own
+// digest set: Docker records an entry per manifest the image was ever pulled
+// under, so any matching entry is a match, and that match says nothing about
+// the Replicas beside it. A Replica with no digest to compare, or no digest to
+// compare it against, is counted as unknown rather than folded into either
+// verdict.
+func compareReplicas(img *Image) {
+	if len(img.Replicas) == 0 {
+		return
+	}
+	compared := img.DeclaredDigest
+	if compared == "" {
+		compared = img.RegistryDigest
+	}
+	img.ReplicaComparison.Compared = compared
+
+	for _, r := range img.Replicas {
+		switch {
+		case compared == "" || len(r.Digests) == 0:
+			img.ReplicaComparison.Unknown++
+		case containsDigest(r.Digests, compared):
+			img.ReplicaComparison.Matching++
+		default:
+			img.ReplicaComparison.Mismatching++
+		}
+	}
+	img.ReplicaComparison.Incomplete = img.ReplicaComparison.Unknown > 0
+}
+
+func assemble(st compose.Stack, svc compose.Service, p probe, running map[string][]local.Container, id identity, dockerUp bool, cfg config.Config) Image {
 	img := Image{
 		Stack:          st.Name,
 		Service:        svc.Name,
 		Ref:            svc.Ref,
 		DeclaredDigest: svc.Ref.Digest,
+		Project:        id.project,
+		ProjectBound:   id.bound,
+		IdentityNote:   id.note,
 		DockerChecked:  dockerUp,
 	}
 
-	if c, ok := running[st.Name+"/"+svc.Name]; ok {
-		img.Running = true
-		img.RunningDigests = c.RepoDigests
+	for _, c := range running[id.project+"/"+svc.Name] {
+		img.Replicas = append(img.Replicas, Replica{Image: c.Image, Digests: c.RepoDigests})
 	}
+	img.Running = len(img.Replicas) > 0
 
 	if p.err != nil {
 		img.Err = p.err.Error()
+		compareReplicas(&img)
 		img.Statuses = applicable(img)
 		img.Status = img.Statuses[0]
 		return img
@@ -292,6 +387,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 		}
 	}
 
+	compareReplicas(&img)
 	img.Statuses = applicable(img)
 	img.Status = img.Statuses[0]
 	return img

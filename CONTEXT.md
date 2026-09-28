@@ -10,6 +10,14 @@ stackmon reports outdated container images across enrolled Docker Compose stacks
 A Compose project stackmon has been told to monitor: a name, a directory, and a compose file. Identified by name and absolute compose path.
 _Avoid_: Project (reserve for the Docker Compose project name, which is not always the stack name), service group.
 
+**Project**:
+The Docker Compose project name a running container belongs to, which Compose derives from the directory, from `name:` in the compose file, or from `docker compose -p`. It is not the stack's name and never is inferred from it.
+_Avoid_: Stack, display name.
+
+**Project Binding**:
+An enrolled stack's explicit association with a Project, set by `enroll --project`, `enroll --running`, or `inventory set-project`. A binding overrides matching and is never silently replaced; without one, a Project is matched from the paths Compose recorded, and an ambiguous or unverifiable match yields an unknown identity rather than a guess.
+_Avoid_: Name, default project, mapping.
+
 **Enrollment**:
 The explicit act of adding a stack to the Inventory. Monitoring never begins implicitly — a new directory under a root, or a newly observed running container, is never auto-enrolled.
 _Avoid_: Registration, tracking.
@@ -37,7 +45,7 @@ One container definition within a stack's compose file, identifying one image re
 _Avoid_: Container (a service is declared; a container is the running instance of it).
 
 **Replica**:
-One running container instance of a Service within its Docker Compose project. A Service can have multiple Replicas whose deployed image content differs; agreement by one Replica does not establish agreement by all.
+One running container instance of a Service within its Project. A Service can have multiple Replicas whose deployed image content differs; agreement by one Replica does not establish agreement by all. A Replica whose image has no recorded digest is unknown, never agreement. A `docker compose run` container is not a Replica.
 _Avoid_: Service (reserve for the Compose definition).
 
 **Ref**:
@@ -65,7 +73,7 @@ How large a Candidate's update is relative to Version: patch, minor, or major.
 _Avoid_: Severity, level.
 
 **Status**:
-The single headline verdict for one image, chosen by precedence when more than one applies: `current`, `update-available`, `digest-drift`, `not-deployed`, `stale-deployment`, `not-running`, or `unknown`.
+The single headline verdict for one image, chosen by precedence when more than one applies: `current`, `update-available`, `digest-drift`, `not-deployed`, `stale-deployment`, `not-running`, or `unknown`. `unknown` is also how an uncertain Project identity or an unjudgeable Replica is reported, and never stands in for `not-running`, which claims a confirmed absence.
 _Avoid_: State (reserve for Declared/Running/Registry), result.
 
 **Digest Drift**:
@@ -73,10 +81,10 @@ The declared tag still matches, but the registry now serves a different digest f
 _Avoid_: Update (drift alone never counts as `HasUpdates`).
 
 **Not Deployed**:
-The compose file's digest differs from the digest the running container actually uses — an edit hasn't been rolled out yet.
+The compose file's digest differs from the digest a running Replica actually uses — an edit hasn't been rolled out yet, at least for that Replica.
 
 **Stale Deployment**:
-A running container is pinned to an older digest than its floating tag now resolves to.
+A running Replica is pinned to an older digest than its floating tag now resolves to.
 
 ### Bump
 

@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gvwalker/stackmon/internal/compose"
+	"github.com/gvwalker/stackmon/internal/local"
 )
 
 // completeEnrolledStacks returns enrolled stack names as completion candidates.
@@ -54,7 +55,7 @@ func completeStackServices(cmd *cobra.Command, stackName string, _ string) ([]st
 		ctx = context.Background()
 	}
 
-	st, err := compose.Load(ctx, s.Name, s.Dir, s.File)
+	st, err := compose.Load(ctx, s)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -62,6 +63,38 @@ func completeStackServices(cmd *cobra.Command, stackName string, _ string) ([]st
 	var comps []string
 	for _, svc := range st.Services {
 		comps = append(comps, svc.Name)
+	}
+	sort.Strings(comps)
+	return comps, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeRunningProjects suggests the Compose projects Docker currently has
+// containers for, so binding a stack to a project does not require remembering
+// the name `docker compose -p` was given. Without a daemon there is nothing to
+// suggest, and completion says so by declining rather than failing.
+func completeRunningProjects(cmd *cobra.Command) ([]string, cobra.ShellCompDirective) {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	prober := local.New()
+	if !prober.Available() {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	containers, err := prober.Containers(ctx)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+
+	seen := map[string]bool{}
+	var comps []string
+	for _, c := range containers {
+		if c.Project == "" || seen[c.Project] {
+			continue
+		}
+		seen[c.Project] = true
+		comps = append(comps, c.Project)
 	}
 	sort.Strings(comps)
 	return comps, cobra.ShellCompDirectiveNoFileComp

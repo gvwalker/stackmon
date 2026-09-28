@@ -24,6 +24,35 @@ const (
 	StatusCurrent         Status = "current"
 )
 
+// Replica is one running container of a Service. Each Replica keeps its own
+// digest set: agreement by one Replica is not agreement by the Service, so
+// their digests are never unioned.
+type Replica struct {
+	// Image is the reference the container was started from.
+	Image string `json:"image,omitempty"`
+	// Digests is every manifest digest Docker recorded for this container's
+	// image. Empty when the image has none (built locally, or the lookup
+	// failed), which leaves the Replica unjudgeable rather than wrong.
+	Digests []string `json:"digests,omitempty"`
+}
+
+// ReplicaComparison summarises how a Service's Replicas compared against the
+// digest they were judged by.
+type ReplicaComparison struct {
+	// Compared is that digest: the declared pin when the reference has one,
+	// otherwise whatever the registry currently serves.
+	Compared string `json:"compared,omitempty"`
+	// Matching, Mismatching and Unknown count the Replicas. Unknown counts
+	// Replicas with no recorded digest to compare, so they are neither
+	// agreement nor disagreement.
+	Matching    int `json:"matching"`
+	Mismatching int `json:"mismatching"`
+	Unknown     int `json:"unknown"`
+	// Incomplete is true when at least one Replica could not be judged, so
+	// the comparison says less than the Service's full state.
+	Incomplete bool `json:"incomplete"`
+}
+
 // Image is one service's image and everything learned about it.
 type Image struct {
 	Stack   string       `json:"stack"`
@@ -33,20 +62,26 @@ type Image struct {
 	// DeclaredDigest is the digest written in the compose file, empty for a
 	// tag-only reference.
 	DeclaredDigest string `json:"declared_digest,omitempty"`
-	// Running is true when a container was found for the service in the
-	// Docker container index, independent of whether that container's
-	// image has a resolvable repo digest. A running container with no
-	// RepoDigests entry (built locally, docker load'd, or a failed
-	// lookup) is still running: only DockerChecked && !Running means no
-	// container exists.
+	// Project is the Docker Compose project this service's running state was
+	// read from, empty when none is running this stack's compose file.
+	Project string `json:"project,omitempty"`
+	// ProjectBound is true when Project came from an explicit binding
+	// rather than from matching the stack's paths against Docker's labels.
+	ProjectBound bool `json:"project_bound"`
+	// IdentityNote explains a project that could not be established. It is a
+	// distinct field from Err because an unresolved identity does not
+	// invalidate the registry findings, which stay worth reporting.
+	IdentityNote string `json:"identity_note,omitempty"`
+	// Running is true when at least one Replica of the service was found.
+	// A Replica with no RepoDigests entry (built locally, docker load'd, or
+	// a failed lookup) is still running: only DockerChecked && !Running
+	// means no container exists.
 	Running bool `json:"running"`
-	// RunningDigests is every repo digest Docker recorded for the running
-	// container's image. Docker can record more than one manifest digest
-	// for the same image (e.g. after a retag), so this is a set: a
-	// declared or registry digest matching any entry counts as deployed.
-	// May be empty even when Running is true, when the image has no
-	// RepoDigests entry.
-	RunningDigests []string `json:"running_digests,omitempty"`
+	// Replicas are the running containers of this service, in a stable
+	// order.
+	Replicas []Replica `json:"replicas,omitempty"`
+	// ReplicaComparison is how those Replicas compared.
+	ReplicaComparison ReplicaComparison `json:"replica_comparison"`
 	// RegistryDigest is what the registry serves for the declared reference.
 	RegistryDigest string `json:"registry_digest,omitempty"`
 	// DockerChecked records whether the daemon was reachable, so that an
@@ -132,15 +167,31 @@ func applicable(i Image) []Status {
 	if i.DeclaredDigest != "" && i.RegistryDigest != "" && i.DeclaredDigest != i.RegistryDigest {
 		out = append(out, StatusDigestDrift)
 	}
-	if i.DeclaredDigest != "" && len(i.RunningDigests) > 0 && !containsDigest(i.RunningDigests, i.DeclaredDigest) {
-		out = append(out, StatusNotDeployed)
+	// An ambiguous or unverifiable project identity means the running state
+	// was never established, which is not the same as nothing running. The
+	// registry findings above survive; "not running" would not be a fact.
+	if i.DockerChecked && i.IdentityNote != "" {
+		out = append(out, StatusUnknown)
 	}
-	// A floating reference has no declared digest, so a running container that
-	// differs from the registry means the pull is stale.
-	if i.DeclaredDigest == "" && len(i.RunningDigests) > 0 && i.RegistryDigest != "" && !containsDigest(i.RunningDigests, i.RegistryDigest) {
-		out = append(out, StatusStaleDeployment)
+	if i.DockerChecked && i.Running {
+		// One Replica behind is the Service behind: the deployment is
+		// mixed, and the replica that agrees does not make it whole.
+		if i.ReplicaComparison.Mismatching > 0 {
+			if i.DeclaredDigest != "" {
+				out = append(out, StatusNotDeployed)
+			} else {
+				out = append(out, StatusStaleDeployment)
+			}
+		}
+		// A Replica that could not be judged leaves the comparison short of
+		// the Service's full state, so it cannot be "current". A known
+		// mismatch above is still the more actionable finding and stays
+		// the headline.
+		if i.ReplicaComparison.Incomplete {
+			out = append(out, StatusUnknown)
+		}
 	}
-	if i.DockerChecked && !i.Running {
+	if i.DockerChecked && !i.Running && i.IdentityNote == "" {
 		out = append(out, StatusNotRunning)
 	}
 	if len(out) == 0 {

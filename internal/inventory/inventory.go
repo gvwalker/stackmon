@@ -16,11 +16,19 @@ import (
 // CurrentVersion is the on-disk schema version.
 const CurrentVersion = 1
 
-// Stack is one enrolled stack. Name is the directory basename.
+// Stack is one enrolled stack. Name is the directory basename, or whatever
+// --name chose; it is a display name and carries no Docker meaning.
 type Stack struct {
-	Name     string    `json:"name"`
-	Dir      string    `json:"dir"`
-	File     string    `json:"file"`
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
+	File string `json:"file"`
+	// Project binds the stack to a Docker Compose project by name. It is
+	// optional, and empty means stackmon works the project out from the
+	// paths Docker recorded rather than from the display name. A legacy
+	// inventory has no such field, which is deliberately not the same as a
+	// binding: an absent field must never be read as "the name is the
+	// project".
+	Project  string    `json:"project,omitempty"`
 	Enrolled time.Time `json:"enrolled"`
 }
 
@@ -51,6 +59,22 @@ func (i *Inventory) Add(s Stack) error {
 	}
 	i.Stacks = append(i.Stacks, s)
 	return nil
+}
+
+// SetProject binds an enrolled stack to a Docker Compose project, or clears
+// the binding when project is empty so that matching falls back to the paths
+// Docker recorded. Everything else about the stack -- its name, compose path,
+// and original enrollment timestamp -- is left alone: a binding is a fact about
+// this stack, not a re-enrollment of it.
+func (i *Inventory) SetProject(name, project string) error {
+	for idx, s := range i.Stacks {
+		if s.Name != name {
+			continue
+		}
+		i.Stacks[idx].Project = project
+		return nil
+	}
+	return fmt.Errorf("inventory: %q is not enrolled", name)
 }
 
 // Remove unenrolls a stack by name.

@@ -6,6 +6,7 @@ package render
 import (
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/gvwalker/stackmon/internal/report"
@@ -38,23 +39,95 @@ func Table(w io.Writer, r report.Report) error {
 
 // detailCell is the one-line explanation shown beside a status.
 func detailCell(i report.Image) string {
+	// A service is not one container, so how many of its replicas agree, and
+	// against which digest, is the fact behind most verdicts.
+	note := replicaNote(i.ReplicaComparison)
+
+	var cell string
 	switch i.Status {
 	case report.StatusUnknown:
-		return i.Err
+		// Three different reasons to say nothing definite: a failed probe,
+		// a project identity that could not be established, and a replica
+		// with no digest to judge.
+		cell = firstNonEmpty(i.Err, i.IdentityNote, note)
+		return cell
 	case report.StatusUpdateAvailable:
 		if i.KindName != "" {
-			return fmt.Sprintf("%s available (%s)", i.Candidate, i.KindName)
+			cell = fmt.Sprintf("%s available (%s)", i.Candidate, i.KindName)
+		} else {
+			cell = i.Candidate + " available"
 		}
-		return i.Candidate + " available"
 	case report.StatusDigestDrift:
-		return "same tag, new digest upstream"
+		cell = "same tag, new digest upstream"
 	case report.StatusNotDeployed:
-		return "declared pin not yet deployed"
+		cell = "declared pin not yet deployed"
 	case report.StatusStaleDeployment:
-		return "running image older than the tag now resolves to"
+		cell = "running image older than the tag now resolves to"
 	case report.StatusNotRunning:
-		return "no running container"
+		cell = "no running container"
+	case report.StatusCurrent:
+		// All the replicas agreed, which is only worth saying when there was
+		// more than one of them.
+		if len(i.Replicas) < 2 {
+			return ""
+		}
+		return note
 	default:
 		return ""
 	}
+
+	if note != "" {
+		if cell == "" {
+			return note
+		}
+		cell += "; " + note
+	}
+	return cell
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// replicaNote summarises a service's replicas in one line: how many agree
+// with the compared digest, how many differ, how many could not be judged.
+func replicaNote(c report.ReplicaComparison) string {
+	if c.Matching == 0 && c.Mismatching == 0 && c.Unknown == 0 {
+		return ""
+	}
+	against := "no digest to compare against"
+	if c.Compared != "" {
+		against = shortDigest(c.Compared)
+	}
+
+	var parts []string
+	if c.Matching > 0 {
+		parts = append(parts, fmt.Sprintf("%d match %s", c.Matching, against))
+	}
+	if c.Mismatching > 0 {
+		parts = append(parts, fmt.Sprintf("%d differ from %s", c.Mismatching, against))
+	}
+	if c.Unknown > 0 {
+		parts = append(parts, fmt.Sprintf("%d unknown, no digest recorded", c.Unknown))
+	}
+	return fmt.Sprintf("of %d replicas, %s", c.Matching+c.Mismatching+c.Unknown, strings.Join(parts, ", "))
+}
+
+// shortDigest keeps a digest recognisable in a table cell: the algorithm plus
+// the first twelve hex characters say as much as all sixty-four do, without
+// taking the row's width away from the status.
+func shortDigest(digest string) string {
+	algo, hex, found := strings.Cut(digest, ":")
+	if !found {
+		return digest
+	}
+	if len(hex) > 12 {
+		hex = hex[:12]
+	}
+	return algo + ":" + hex
 }

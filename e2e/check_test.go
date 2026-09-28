@@ -190,13 +190,16 @@ func TestCheckReportsCurrentWhenARunningTagMatchesTheRegistry(t *testing.T) {
 func TestCheckReportsNotRunningWhenNoContainerExists(t *testing.T) {
 	e := newEnv(t)
 	e.push("app", "1.0.0", image{})
-	// A container stackmon did not start cannot be matched to a service, so
-	// it must not turn up as somebody's running image.
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+	// A project running from a different directory says so in its labels, so
+	// this stack is confirmed absent rather than merely unidentifiable. A
+	// container stackmon did not start cannot be matched to a service at all,
+	// so it must not turn up as somebody's running image either.
+	other := e.stack("other", "services: {}\n")
 	e.docker.running(
-		container{Project: "other", Service: "api", ImageID: "sha256:local"},
+		container{Project: "other", Service: "api", WorkingDir: filepath.Dir(other), ConfigFiles: other, ImageID: "sha256:local"},
 		container{Image: "nginx:latest", ImageID: "sha256:unmanaged"},
 	)
-	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
 
 	row := e.checkJSON().image(t, "demo", "api")
 	assertEq(t, "status", row.Status, "not-running")
@@ -205,6 +208,8 @@ func TestCheckReportsNotRunningWhenNoContainerExists(t *testing.T) {
 
 // A container running a locally built image has no RepoDigests entry. Its
 // presence is still a presence: "no digest" must not read as "not running".
+// What it cannot support is a deployment verdict, so the row is unknown with
+// the replica counted, not a container nobody has.
 func TestCheckDoesNotCallAContainerWithoutDigestsNotRunning(t *testing.T) {
 	e := newEnv(t)
 	e.push("app", "1.0.0", image{})
@@ -218,6 +223,8 @@ func TestCheckDoesNotCallAContainerWithoutDigestsNotRunning(t *testing.T) {
 	if row.Status == "not-running" {
 		t.Error("status = not-running, want a verdict about the image, not the container")
 	}
+	assertEq(t, "replicas", len(row.Replicas), 1)
+	assertEq(t, "unjudgeable replicas", row.ReplicaCount.Unknown, 1)
 }
 
 func TestCheckReportsUnknownForAnImageTheRegistryDoesNotHave(t *testing.T) {
