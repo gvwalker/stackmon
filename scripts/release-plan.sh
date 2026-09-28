@@ -19,6 +19,15 @@ set -euo pipefail
 notes_file=${1:?usage: release-plan.sh <notes-file> [explicit-version]}
 explicit=${2:-${INPUT_VERSION:-}}
 sha=${GITHUB_SHA:-$(git rev-parse HEAD)}
+
+# gh exits 4 with a generic message when it has no token, which reads like a
+# script bug rather than a missing credential. Say which one, before the first
+# gh call can fail with it.
+if ! gh auth status >/dev/null 2>&1; then
+  echo 'release-plan: gh is not authenticated; set GH_TOKEN to read merged PRs' >&2
+  exit 1
+fi
+
 repo=${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}
 
 # A release must come from a commit main can serve. Refuse to tag a commit that

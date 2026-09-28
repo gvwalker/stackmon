@@ -15,7 +15,10 @@ name: Release
 
 permissions:
   actions: read
+  # Tagging, pushing, and creating the release all need the contents write.
   contents: write
+  # Reading the merged PRs the release notes are built from.
+  pull-requests: read
 
 # Two releases tagging the same range at once would race for the same version.
 concurrency:
@@ -49,6 +52,9 @@ jobs:
         id: plan
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          # Reading merged PRs is what the notes are made of, so gh needs a
+          # token here just as much as it does when creating the release.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./scripts/release-plan.sh release-notes.md >> "$GITHUB_OUTPUT"
           cat release-notes.md
