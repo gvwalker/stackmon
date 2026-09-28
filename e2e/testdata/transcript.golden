@@ -262,7 +262,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckReportsCurrentWhenTheDeclaredTagIsNewest
 $ stackmon check --json
-  demo         api        1.1.0      current            
+  demo         api        1.1.0      current             [replicas 1/1 match, 0 differ, 0 unknown of ebe3163d5e94]
 --- docker available: true ---
 
 ### TestCheckReportsCurrentWhenTheDeclaredTagIsNewest
@@ -287,7 +287,7 @@ enrolled db (ROOT/srv/db/compose.yaml)
 
 ### TestCheckRefusesToAdviseAnOpaqueTag
 $ stackmon check --json
-  db           postgres   pg15       current            
+  db           postgres   pg15       current             [replicas 1/1 match, 0 differ, 0 unknown of fbed37e10800]
 --- docker available: true ---
 
 ### TestCheckHonoursAConfiguredConstraint
@@ -298,7 +298,7 @@ enrolled db (ROOT/srv/db/compose.yaml)
 
 ### TestCheckHonoursAConfiguredConstraint
 $ stackmon check --json
-  db           postgres   pg15       update-available    -> pg18.1 (major)
+  db           postgres   pg15       update-available    -> pg18.1 (major) [replicas 1/1 match, 0 differ, 0 unknown of fbed37e10800]
 --- docker available: true ---
 
 ### TestCheckRanksBuildNumbersNumerically
@@ -309,7 +309,7 @@ enrolled media (ROOT/srv/media/compose.yaml)
 
 ### TestCheckRanksBuildNumbersNumerically
 $ stackmon check --json
-  media        app        4.0.19.999-ls400 update-available    -> 4.0.19.1000-ls401 (patch)
+  media        app        4.0.19.999-ls400 update-available    -> 4.0.19.1000-ls401 (patch) [replicas 1/1 match, 0 differ, 0 unknown of a35905dc2166]
 --- docker available: true ---
 
 ### TestCheckDetectsDigestDriftWhenTheTagMoves
@@ -320,21 +320,21 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckDetectsDigestDriftWhenTheTagMoves
 $ stackmon check --json
-  demo         api        1.0.0      digest-drift       
+  demo         api        1.0.0      digest-drift        [replicas 1/1 match, 0 differ, 0 unknown of 45361dacd9da]
 --- docker available: true ---
 
 ### TestCheckDetectsDigestDriftWhenTheTagMoves
 $ stackmon check --fail-on-update
 --- stdout ---
 STACK  SERVICE  VERSION  STATUS        DETAIL
-demo   api      1.0.0    digest-drift  same tag, new digest upstream
+demo   api      1.0.0    digest-drift  same tag, new digest upstream; of 1 replicas, 1 match sha256:45361dacd9da
 --- exit 0 ---
 
 ### TestCheckDetectsDigestDriftWhenTheTagMoves
 $ stackmon check --fail-on-update --drift-too
 --- stdout ---
 STACK  SERVICE  VERSION  STATUS        DETAIL
-demo   api      1.0.0    digest-drift  same tag, new digest upstream
+demo   api      1.0.0    digest-drift  same tag, new digest upstream; of 1 replicas, 1 match sha256:45361dacd9da
 --- exit 2 ---
 
 ### TestCheckReportsNotDeployedWhenTheRunningImageDiffers
@@ -345,14 +345,14 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckReportsNotDeployedWhenTheRunningImageDiffers
 $ stackmon check --json
-  demo         api        1.0.0      not-deployed       
+  demo         api        1.0.0      not-deployed        [replicas 0/1 match, 1 differ, 0 unknown of aba23cf2b248]
 --- docker available: true ---
 
 ### TestCheckReportsNotDeployedWhenTheRunningImageDiffers
 $ stackmon check
 --- stdout ---
 STACK  SERVICE  VERSION  STATUS        DETAIL
-demo   api      1.0.0    not-deployed  declared pin not yet deployed
+demo   api      1.0.0    not-deployed  declared pin not yet deployed; of 1 replicas, 1 differ from sha256:aba23cf2b248
 --- exit 0 ---
 
 ### TestCheckAcceptsAnyRecordedRepoDigestAsDeployed
@@ -363,7 +363,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckAcceptsAnyRecordedRepoDigestAsDeployed
 $ stackmon check --json
-  demo         api        1.0.0      current            
+  demo         api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
 --- docker available: true ---
 
 ### TestCheckReportsStaleDeploymentForAFloatingTag
@@ -374,14 +374,14 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckReportsStaleDeploymentForAFloatingTag
 $ stackmon check --json
-  demo         api        latest     stale-deployment   
+  demo         api        latest     stale-deployment    [replicas 0/1 match, 1 differ, 0 unknown of 3d85d7453e0b]
 --- docker available: true ---
 
 ### TestCheckReportsStaleDeploymentForAFloatingTag
 $ stackmon check --fail-on-update
 --- stdout ---
 STACK  SERVICE  VERSION  STATUS            DETAIL
-demo   api      latest   stale-deployment  running image older than the tag now resolves to
+demo   api      latest   stale-deployment  running image older than the tag now resolves to; of 1 replicas, 1 differ from sha256:3d85d7453e0b
 --- exit 0 ---
 
 ### TestCheckReportsCurrentWhenARunningTagMatchesTheRegistry
@@ -392,7 +392,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckReportsCurrentWhenARunningTagMatchesTheRegistry
 $ stackmon check --json
-  demo         api        latest     current            
+  demo         api        latest     current             [replicas 1/1 match, 0 differ, 0 unknown of 3d85d7453e0b]
 --- docker available: true ---
 
 ### TestCheckReportsNotRunningWhenNoContainerExists
@@ -421,7 +421,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckDoesNotCallAContainerWithoutDigestsNotRunning
 $ stackmon check --json
-  demo         api        1.0.0      current            
+  demo         api        1.0.0      unknown             [replicas 0/1 match, 0 differ, 1 unknown of aba23cf2b248]
 --- docker available: true ---
 
 ### TestCheckReportsUnknownForAnImageTheRegistryDoesNotHave
@@ -614,7 +614,7 @@ enrolled edge (ROOT/srv/edge/compose.yaml)
 
 ### TestCheckRecoversTheVersionOfADigestOnlyPin
 $ stackmon check --json
-  edge         proxy      v3.7.10    update-available    -> v3.9.0 (minor)
+  edge         proxy      v3.7.10    update-available    -> v3.9.0 (minor) [replicas 1/1 match, 0 differ, 0 unknown of e2dd720411ae]
 --- docker available: true ---
 
 ### TestCheckOffersNothingForAnUnlabelledDigestOnlyPin
@@ -625,7 +625,7 @@ enrolled edge (ROOT/srv/edge/compose.yaml)
 
 ### TestCheckOffersNothingForAnUnlabelledDigestOnlyPin
 $ stackmon check --json
-  edge         proxy      -          current            
+  edge         proxy      -          current             [replicas 1/1 match, 0 differ, 0 unknown of 5a4a4d25d775]
 --- docker available: true ---
 
 ### TestCheckRetainsEveryApplicableStatus
@@ -636,7 +636,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckRetainsEveryApplicableStatus
 $ stackmon check --json
-  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor) [replicas 0/1 match, 1 differ, 0 unknown of aba23cf2b248]
 --- docker available: true ---
 
 ### TestCheckComparesMultiArchImagesByTheirIndexDigest
@@ -647,7 +647,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckComparesMultiArchImagesByTheirIndexDigest
 $ stackmon check --json
-  demo         api        v1         update-available    -> v1.1.0 (minor)
+  demo         api        v1         update-available    -> v1.1.0 (minor) [replicas 1/1 match, 0 differ, 0 unknown of 27ac21ba02d2]
 --- docker available: true ---
 
 ### TestCheckLooksUpASharedRunningImageOnce
@@ -658,8 +658,8 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckLooksUpASharedRunningImageOnce
 $ stackmon check --json
-  demo         a          1.0.0      stale-deployment   
-  demo         b          1.0.0      stale-deployment   
+  demo         a          1.0.0      stale-deployment    [replicas 0/1 match, 1 differ, 0 unknown of aba23cf2b248]
+  demo         b          1.0.0      stale-deployment    [replicas 0/1 match, 1 differ, 0 unknown of aba23cf2b248]
 --- docker available: true ---
 ### TestCheckLooksUpASharedRunningImageOnce
 image lookups for 2 containers sharing one image: 1
@@ -720,7 +720,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckReadsABareRepositoryNameAsLatest
 $ stackmon check --json
-  demo         api        latest     current            
+  demo         api        latest     current             [replicas 1/1 match, 0 differ, 0 unknown of 3d85d7453e0b]
 --- docker available: true ---
 
 ### TestCheckKeepsCandidateTagsInOneChannel
@@ -731,7 +731,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckKeepsCandidateTagsInOneChannel
 $ stackmon check --json
-  demo         api        18-alpine  update-available    -> 19.1-alpine (major)
+  demo         api        18-alpine  update-available    -> 19.1-alpine (major) [replicas 1/1 match, 0 differ, 0 unknown of ef3899e99214]
 --- docker available: true ---
 
 ### TestCheckKeepsVersionlessGlobMatches
@@ -742,7 +742,7 @@ enrolled db (ROOT/srv/db/compose.yaml)
 
 ### TestCheckKeepsVersionlessGlobMatches
 $ stackmon check --json
-  db           postgres   pg15       update-available    -> pg18.1 (major)
+  db           postgres   pg15       update-available    -> pg18.1 (major) [replicas 1/1 match, 0 differ, 0 unknown of fbed37e10800]
 --- docker available: true ---
 
 ### TestCheckHandlesANonNormalisedStackName
@@ -793,6 +793,7 @@ media  available  ROOT/srv/media/compose.yaml
 $ stackmon enroll --running media
 --- stdout ---
 enrolled media (ROOT/srv/media/compose.yaml)
+bound to Compose project media
 --- exit 0 ---
 
 ### TestDiscoverFindsRunningProjectsWithNoRootsConfigured
@@ -835,9 +836,9 @@ enrolled edgebox (ROOT/other/traefik/compose.yaml)
 ### TestEnrollRejectsADuplicateName
 $ stackmon inventory list
 --- stdout ---
-NAME     PATH                                                       ENROLLED
-traefik  ROOT/srv/traefik/compose.yaml    DATE
-edgebox  ROOT/other/traefik/compose.yaml  DATE
+NAME     PATH                                                       PROJECT  ENROLLED
+traefik  ROOT/srv/traefik/compose.yaml    auto     DATE
+edgebox  ROOT/other/traefik/compose.yaml  auto     DATE
 --- exit 0 ---
 
 ### TestEnrollRunningRejectsAmbiguousArguments
@@ -885,7 +886,7 @@ error: inventory: "demo" is not enrolled
 ### TestUnenrollRemovesAStack
 $ stackmon inventory list
 --- stdout ---
-NAME  PATH  ENROLLED
+NAME  PATH  PROJECT  ENROLLED
 --- exit 0 ---
 
 ### TestCheckNamesAStackThatIsNotEnrolled
@@ -966,6 +967,454 @@ $ stackmon discover
 --- stderr ---
 error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
 --- exit 1 ---
+
+### TestCheckMatchesAProjectByPathNotByTheEnrolledName
+$ stackmon enroll ROOT/srv/cache --name edge-cache
+--- stdout ---
+enrolled edge-cache (ROOT/srv/cache/compose.yaml)
+--- exit 0 ---
+
+### TestCheckMatchesAProjectByPathNotByTheEnrolledName
+$ stackmon check --json
+  edge-cache   redis      8.2        not-deployed        [replicas 0/1 match, 1 differ, 0 unknown of 8ea579fd1016]
+--- docker available: true ---
+
+### TestCheckMatchesAProjectByPathNotByTheEnrolledName
+$ stackmon check
+--- stdout ---
+STACK       SERVICE  VERSION  STATUS        DETAIL
+edge-cache  redis    8.2      not-deployed  declared pin not yet deployed; of 1 replicas, 1 differ from sha256:8ea579fd1016
+--- exit 0 ---
+
+### TestCheckMatchesAProjectThatOverridesItsNameInTheComposeFile
+$ stackmon enroll ROOT/srv/web
+--- stdout ---
+enrolled web (ROOT/srv/web/compose.yaml)
+--- exit 0 ---
+
+### TestCheckMatchesAProjectThatOverridesItsNameInTheComposeFile
+$ stackmon check --json
+  web          api        latest     current             [replicas 1/1 match, 0 differ, 0 unknown of 3d85d7453e0b]
+--- docker available: true ---
+
+### TestABindingIsNeverReplacedByAnAutomaticMatch
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestABindingIsNeverReplacedByAnAutomaticMatch
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestABindingIsNeverReplacedByAnAutomaticMatch
+$ stackmon inventory set-project demo elsewhere
+--- stdout ---
+bound demo to Compose project elsewhere
+--- exit 0 ---
+
+### TestABindingIsNeverReplacedByAnAutomaticMatch
+$ stackmon check --json
+  demo         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestABindingIsNeverReplacedByAnAutomaticMatch
+$ stackmon inventory set-project demo --clear
+--- stdout ---
+cleared the project binding for demo; its project is matched automatically again
+--- exit 0 ---
+
+### TestABindingIsNeverReplacedByAnAutomaticMatch
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestTwoProjectsOnOneEnrolledPathAreAmbiguousNotGuessed
+$ stackmon enroll ROOT/srv/cache
+--- stdout ---
+enrolled cache (ROOT/srv/cache/compose.yaml)
+--- exit 0 ---
+
+### TestTwoProjectsOnOneEnrolledPathAreAmbiguousNotGuessed
+$ stackmon check --json
+  cache        api        1.0.0      unknown             [ambiguous: one and two all run ROOT/srv/cache/compose.yaml; bind the one meant with "stackmon inventory set-project cache <project>"]
+--- docker available: true ---
+
+### TestTwoProjectsOnOneEnrolledPathAreAmbiguousNotGuessed
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+cache  api      1.0.0    unknown  ambiguous: one and two all run ROOT/srv/cache/compose.yaml; bind the one meant with "stackmon inventory set-project cache <project>"
+--- exit 0 ---
+
+### TestTwoProjectsOnOneEnrolledPathAreAmbiguousNotGuessed
+$ stackmon show cache
+--- stdout ---
+cache / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  version:   1.0.0
+  note:      ambiguous: one and two all run ROOT/srv/cache/compose.yaml; bind the one meant with "stackmon inventory set-project cache <project>"
+
+--- exit 0 ---
+
+### TestTwoProjectsOnOneEnrolledPathAreAmbiguousNotGuessed
+$ stackmon inventory set-project cache two
+--- stdout ---
+bound cache to Compose project two
+--- exit 0 ---
+
+### TestTwoProjectsOnOneEnrolledPathAreAmbiguousNotGuessed
+$ stackmon check --json
+  cache        api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestAnUnlabelledProjectIsNotIdentifiedByItsName
+$ stackmon enroll ROOT/srv/archive --name cache
+--- stdout ---
+enrolled cache (ROOT/srv/archive/compose.yaml)
+--- exit 0 ---
+
+### TestAnUnlabelledProjectIsNotIdentifiedByItsName
+$ stackmon check --json
+  cache        api        1.0.0      unknown             [cannot tell which Compose project runs ROOT/srv/archive/compose.yaml: the running projects (cache) record no working directory or config file to match it against; bind it with "stackmon inventory set-project cache <project>"]
+--- docker available: true ---
+
+### TestAnUnlabelledProjectIsNotIdentifiedByItsName
+$ stackmon inventory set-project cache cache
+--- stdout ---
+bound cache to Compose project cache
+--- exit 0 ---
+
+### TestAnUnlabelledProjectIsNotIdentifiedByItsName
+$ stackmon check --json
+  cache        api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestALegacyInventoryLoadsWithoutInventingABinding
+$ stackmon inventory list
+--- stdout ---
+NAME    PATH                                                    PROJECT  ENROLLED
+legacy  ROOT/srv/legacy/compose.yaml  auto     DATE
+--- exit 0 ---
+
+### TestALegacyInventoryLoadsWithoutInventingABinding
+$ stackmon check --json
+  legacy       api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon inventory set-project demo custom-project
+--- stdout ---
+bound demo to Compose project custom-project
+--- exit 0 ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon inventory set-project demo --clear
+--- stdout ---
+cleared the project binding for demo; its project is matched automatically again
+--- exit 0 ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon inventory set-project demo custom --clear
+--- stderr ---
+error: --clear takes only a stack name; drop the project argument
+--- exit 1 ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon inventory set-project demo
+--- stderr ---
+error: requires a stack and a project name (or --clear to remove the binding)
+--- exit 1 ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon inventory set-project ghost custom
+--- stderr ---
+error: inventory: "ghost" is not enrolled
+--- exit 1 ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon inventory set-project demo Not A Project
+--- stderr ---
+error: compose: "Not A Project" is not a valid Compose project name; use lowercase letters, digits, dashes and underscores, starting with a letter or digit
+--- exit 1 ---
+
+### TestBindingAProjectRoundTripsAndValidatesItsArguments
+$ stackmon inventory set-project demo demo!
+--- stderr ---
+error: compose: "demo!" is not a valid Compose project name; use lowercase letters, digits, dashes and underscores, starting with a letter or digit
+--- exit 1 ---
+
+### TestEnrollCanBindAProject
+$ stackmon enroll ROOT/srv/demo --project running-project
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+bound to Compose project running-project
+--- exit 0 ---
+
+### TestEnrollCanBindAProject
+$ stackmon inventory list
+--- stdout ---
+NAME  PATH                                                  PROJECT          ENROLLED
+demo  ROOT/srv/demo/compose.yaml  running-project  DATE
+--- exit 0 ---
+
+### TestEnrollCanBindAProject
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestEnrollCanBindAProject
+$ stackmon enroll ROOT/srv/other --name other --project silent
+--- stdout ---
+enrolled other (ROOT/srv/other/compose.yaml)
+bound to Compose project silent
+--- exit 0 ---
+
+### TestEnrollCanBindAProject
+$ stackmon check --json
+  demo         api        1.0.0      not-running        
+  other        api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestEnrollCanBindAProject
+$ stackmon enroll --running running-project --project running-project
+--- stderr ---
+error: --project cannot be combined with --running
+--- exit 1 ---
+
+### TestEnrollCanBindAProject
+$ stackmon enroll ROOT/srv/demo --name third --project Not A Project
+--- stderr ---
+error: compose: "Not A Project" is not a valid Compose project name; use lowercase letters, digits, dashes and underscores, starting with a letter or digit
+--- exit 1 ---
+
+### TestRunningEnrollmentStoresTheProjectItFound
+$ stackmon enroll --running media
+--- stdout ---
+enrolled media (ROOT/srv/media/compose.yaml)
+bound to Compose project media
+--- exit 0 ---
+
+### TestRunningEnrollmentStoresTheProjectItFound
+$ stackmon check --json
+  media        api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestBindingCommandsDocumentThemselves
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBindingCommandsDocumentThemselves
+$ stackmon inventory set-project --help
+--- stdout ---
+Bind an enrolled stack to the Docker Compose project its containers run in.
+
+Without a binding, stackmon matches the stack to a project using the working
+directory and compose file Docker recorded on that project's containers, and
+reports an unknown identity rather than a guess when several projects match.
+
+Pass --clear to drop the binding and go back to that automatic matching. The
+stack's name, compose path, and enrollment date are left untouched.
+
+Usage:
+  stackmon inventory set-project <stack> <project> [flags]
+
+Flags:
+      --clear   remove the binding instead of setting one
+  -h, --help    help for set-project
+
+Global Flags:
+      --config string      path to config.toml (default ~/.config/stackmon/config.toml)
+      --inventory string   path to inventory.json (default ~/.local/state/stackmon/inventory.json)
+--- exit 0 ---
+
+### TestBindingCommandsDocumentThemselves
+$ stackmon enroll --help
+--- stdout ---
+Add a stack to the inventory
+
+Usage:
+  stackmon enroll [<path>] [flags]
+
+Flags:
+  -h, --help             help for enroll
+      --name string      override the stack name (default: directory basename)
+      --project string   bind the stack to this Docker Compose project (default: matched from the paths Docker recorded)
+      --running string   enroll a running Compose project by project name
+
+Global Flags:
+      --config string      path to config.toml (default ~/.config/stackmon/config.toml)
+      --inventory string   path to inventory.json (default ~/.local/state/stackmon/inventory.json)
+--- exit 0 ---
+
+### TestBindingCommandsDocumentThemselves
+$ stackmon __complete inventory set-project 
+--- stdout ---
+demo	ROOT/srv/demo/compose.yaml
+:4
+--- stderr ---
+Completion ended with directive: ShellCompDirectiveNoFileComp
+--- exit 0 ---
+
+### TestBindingCommandsDocumentThemselves
+$ stackmon __complete inventory set-project demo 
+--- stdout ---
+demo
+:4
+--- stderr ---
+Completion ended with directive: ShellCompDirectiveNoFileComp
+--- exit 0 ---
+
+### TestMixedReplicasReportTheSameVerdictInEitherOrder
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestMixedReplicasReportTheSameVerdictInEitherOrder
+$ stackmon check --json
+  demo         api        1.0.0      not-deployed        [replicas 1/2 match, 1 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestMixedReplicasReportTheSameVerdictInEitherOrder
+$ stackmon check --json
+  demo         api        1.0.0      not-deployed        [replicas 1/2 match, 1 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestMixedReplicasReportTheSameVerdictInEitherOrder
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS        DETAIL
+demo   api      1.0.0    not-deployed  declared pin not yet deployed; of 2 replicas, 1 match sha256:aba23cf2b248, 1 differ from sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestAlternativeRepoDigestsMatchOneReplicaWithoutHidingAnother
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestAlternativeRepoDigestsMatchOneReplicaWithoutHidingAnother
+$ stackmon check --json
+  demo         api        1.0.0      not-deployed        [replicas 1/2 match, 1 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestAnUnjudgeableReplicaPreventsACurrentVerdict
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestAnUnjudgeableReplicaPreventsACurrentVerdict
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [replicas 1/2 match, 0 differ, 1 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestAnUnjudgeableReplicaPreventsACurrentVerdict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  version:   1.0.0
+  project:   demo (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    unknown, no recorded digest
+      image:   app:built-here
+
+--- exit 0 ---
+
+### TestAMismatchSurvivesAnUnjudgeableReplica
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestAMismatchSurvivesAnUnjudgeableReplica
+$ stackmon check --json
+  demo         api        1.0.0      not-deployed        [replicas 1/3 match, 1 differ, 1 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestAMismatchSurvivesAnUnjudgeableReplica
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS        DETAIL
+demo   api      1.0.0    not-deployed  declared pin not yet deployed; of 3 replicas, 1 match sha256:aba23cf2b248, 1 differ from sha256:aba23cf2b248, 1 unknown, no digest recorded
+--- exit 0 ---
+
+### TestMixedReplicasOfAFloatingTagAreStale
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestMixedReplicasOfAFloatingTagAreStale
+$ stackmon check --json
+  demo         api        latest     stale-deployment    [replicas 1/2 match, 1 differ, 0 unknown of 3d85d7453e0b]
+--- docker available: true ---
+
+### TestKnownFindingsSurviveReplicaUncertainty
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestKnownFindingsSurviveReplicaUncertainty
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor) [replicas 0/1 match, 0 differ, 1 unknown of 45361dacd9da]
+--- docker available: true ---
+
+### TestKnownFindingsSurviveReplicaUncertainty
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestKnownFindingsSurviveReplicaUncertainty
+$ stackmon check --json
+  demo         api        1.0.0      digest-drift        [replicas 0/1 match, 0 differ, 1 unknown of 45361dacd9da]
+--- docker available: true ---
+
+### TestOneOffContainersAreNotReplicas
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestOneOffContainersAreNotReplicas
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 1/1 match, 0 differ, 0 unknown of aba23cf2b248]
+  demo         worker     1.0.0      not-running        
+--- docker available: true ---
+
+### TestOneOffContainersAreNotReplicas
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   api      1.0.0    current      
+demo   worker   1.0.0    not-running  no running container
+--- exit 0 ---
+
+### TestOneOffContainersAreNotReplicas
+$ stackmon discover
+--- stdout ---
+NAME  STATE     PATH
+demo  enrolled  ROOT/srv/demo/compose.yaml
+--- exit 0 ---
 
 ### TestShowExplainsWhyADigestChanged/rebuilt_from_the_same_revision
 $ stackmon enroll ROOT/srv/demo

@@ -46,11 +46,88 @@ func Detail(w io.Writer, i report.Image, rels []notes.Release) error {
 			return err
 		}
 	}
+	if i.IdentityNote != "" {
+		if _, err := fmt.Fprintf(w, "  note:      %s\n", i.IdentityNote); err != nil {
+			return err
+		}
+	}
 
+	if err := writeReplicas(w, i); err != nil {
+		return err
+	}
 	if err := writeDigestChange(w, i); err != nil {
 		return err
 	}
 	return writeNotes(w, i, rels)
+}
+
+// writeReplicas lists every running container of the service and how each one
+// compared. A service is not one container: showing a single image's digests
+// would hide a replica still running yesterday's build.
+func writeReplicas(w io.Writer, i report.Image) error {
+	if !i.DockerChecked {
+		return nil
+	}
+	if i.Project != "" {
+		from := "matched from its compose file"
+		if i.ProjectBound {
+			from = "bound by enrollment"
+		}
+		if _, err := fmt.Fprintf(w, "  project:   %s (%s)\n", i.Project, from); err != nil {
+			return err
+		}
+	}
+	if len(i.Replicas) == 0 {
+		return nil
+	}
+
+	if _, err := fmt.Fprintf(w, "\n  replicas (%d)\n", len(i.Replicas)); err != nil {
+		return err
+	}
+	compared := i.ReplicaComparison.Compared
+	if compared == "" {
+		compared = "(nothing to compare against: no declared or registry digest)"
+	} else {
+		compared = "compared against " + compared
+	}
+	if _, err := fmt.Fprintf(w, "    %s\n", compared); err != nil {
+		return err
+	}
+
+	for _, r := range i.Replicas {
+		verdict := "differs"
+		switch {
+		case len(r.Digests) == 0:
+			verdict = "unknown, no recorded digest"
+		case i.ReplicaComparison.Compared == "":
+			verdict = "unknown, nothing to compare against"
+		case contains(r.Digests, i.ReplicaComparison.Compared):
+			verdict = "match"
+		}
+		if _, err := fmt.Fprintf(w, "    %s\n", verdict); err != nil {
+			return err
+		}
+		if r.Image != "" {
+			if _, err := fmt.Fprintf(w, "      image:   %s\n", r.Image); err != nil {
+				return err
+			}
+		}
+		for _, d := range r.Digests {
+			if _, err := fmt.Fprintf(w, "      digest:  %s\n", d); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func contains(set []string, want string) bool {
+	for _, s := range set {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 // writeDigestChange explains what moved when a digest changed. A digest

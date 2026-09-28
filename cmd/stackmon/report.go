@@ -40,7 +40,7 @@ func loadStackReport(cmd *cobra.Command, names []string) (report.Report, []compo
 	var parsed []compose.Stack
 	var failures []error
 	for _, s := range stacks {
-		st, err := compose.Load(ctx, s.Name, s.Dir, s.File)
+		st, err := compose.Load(ctx, s)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", s.Name, err))
 			continue

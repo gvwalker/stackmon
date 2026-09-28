@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -17,7 +18,24 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/gvwalker/stackmon/internal/imageref"
+	"github.com/gvwalker/stackmon/internal/inventory"
 )
+
+// projectName is Compose's own rule for a project name: lowercase
+// alphanumerics, dashes and underscores, starting with a letter or digit.
+// Compose rejects anything else, so a binding stackmon accepts but Compose
+// would refuse would only ever fail later, at `docker compose up`.
+var projectName = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// ValidProjectName rejects a Docker Compose project name Compose itself would
+// not accept. Validating at the command boundary means a typo surfaces where
+// it was typed, rather than as a project that never matches anything.
+func ValidProjectName(name string) error {
+	if !projectName.MatchString(name) {
+		return fmt.Errorf("compose: %q is not a valid Compose project name; use lowercase letters, digits, dashes and underscores, starting with a letter or digit", name)
+	}
+	return nil
+}
 
 // Service is one service's image and where it lives in the file.
 type Service struct {
@@ -30,9 +48,15 @@ type Service struct {
 
 // Stack is a parsed compose file.
 type Stack struct {
-	Name     string
-	Dir      string
-	File     string
+	// Name is the enrolled display name. It is not a Docker Compose project
+	// name: the two can differ, and matching one against the other is how a
+	// running service used to be reported as stopped.
+	Name string
+	Dir  string
+	File string
+	// Project is an explicit binding to a Docker Compose project, empty when
+	// the project is to be matched from the paths Docker recorded.
+	Project  string
 	Services []Service
 	// Warnings records per-service issues that were skipped rather than
 	// failing the whole stack: one unreadable image value must not erase
@@ -43,9 +67,10 @@ type Stack struct {
 // Path is the absolute path of the compose file.
 func (s Stack) Path() string { return filepath.Join(s.Dir, s.File) }
 
-// Load parses the stack at dir/file. Interpolation uses the process
-// environment plus the stack's .env file, exactly as Compose does.
-func Load(ctx context.Context, name, dir, file string) (Stack, error) {
+// Load parses the enrolled stack. Interpolation uses the process environment
+// plus the stack's .env file, exactly as Compose does.
+func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
+	name, dir, file := s.Name, s.Dir, s.File
 	path := filepath.Join(dir, file)
 
 	data, err := os.ReadFile(path)
@@ -84,7 +109,7 @@ func Load(ctx context.Context, name, dir, file string) (Stack, error) {
 		return Stack{}, fmt.Errorf("compose: loading %s: %w", path, err)
 	}
 
-	st := Stack{Name: name, Dir: dir, File: file}
+	st := Stack{Name: name, Dir: dir, File: file, Project: s.Project}
 	for svcName, svc := range project.Services {
 		if strings.TrimSpace(svc.Image) == "" {
 			// A build-only service has nothing to check.
