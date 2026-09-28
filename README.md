@@ -245,4 +245,27 @@ go build ./cmd/stackmon
 
 Each run writes its full transcript to `e2e/out/transcript.txt` and compares it against `e2e/testdata/transcript.golden`, so a behavioural change shows up as a reviewable diff. Regenerate the golden with `UPDATE_GOLDEN=1 go test ./e2e/` after confirming the change is intended.
 
-GitHub Actions runs formatting verification, `go vet ./...`, and `go test -v -race ./...` for pull requests and pushes to `main`. Version tags (`v*`) also build the supported static binaries, generate SHA-256 checksums, and publish a GitHub release.
+GitHub Actions runs formatting verification, `go vet ./...`, and `go test -v -race ./...` for pull requests and pushes to `main`.
+
+### Releasing
+
+The **Release** workflow (`gh workflow run release.yml`) turns merged work into a published release. Run it from the Actions tab, or:
+
+```sh
+gh workflow run release.yml -f dry_run=true
+gh workflow run release.yml -f version=v0.5.0
+```
+
+It picks a version, then builds, tags, and publishes:
+
+1. **Version.** By default the next version is derived from the commits since the last tag, by [Conventional Commits](https://www.conventionalcommits.org): a `BREAKING CHANGE` (or `!` after the type) is a major, `feat` is a minor, `fix`, `perf`, `refactor`, or an unrecognised subject is a patch, and `docs`, `test`, `ci`, and `chore` are not releasable on their own. Set the `version` input to release a specific version instead. Tags are normalised to full `vMAJOR.MINOR.PATCH` from here on; the historical `v0.4` is read as `0.4.0`, so a patch release after it is `v0.4.1`.
+2. **Notes.** Every PR merged since the last tag becomes a line in the release notes, grouped into Breaking Changes, Features, Fixes and Improvements, and Other Changes. If there were no merged PRs, the commits since the last tag are used instead. The published binary reports this version, so `stackmon whats-new` and `stackmon update` see the same notes you read on the release page.
+3. **Gates, tag, publish.** The code at the tag passes `gofmt`, `go vet`, and `go test -race ./...` before anything is tagged. The supported static binaries are then built with that version stamped in, SHA-256 checksums are generated, the tag is pushed, and the GitHub release is created with the notes and assets.
+
+The run must start from a commit on `main`; a branch that is not merged is refused. `dry_run=true` prints the version and notes to the run summary and stops there, tagging and publishing nothing.
+
+The version and notes come from `scripts/release-plan.sh`, which you can also run locally against a checkout to preview a release:
+
+```sh
+./scripts/release-plan.sh /tmp/release-notes.md
+```
