@@ -570,3 +570,112 @@ func TestCheckHandlesANonNormalisedStackName(t *testing.T) {
 	assertCode(t, "check a capitalised stack", got.code, 0, got)
 	assertContains(t, "check", got.stdout, "Nextcloud", "cloud", "1.1.0 available (minor)")
 }
+
+// The compact form exists to be read by a script: the verdict, what is running
+// now, and the tag that would supersede it, with no field a reader acting on
+// the verdict would be stuck without.
+func TestCheckCompactCarriesTheVerdictAndWhatWouldChangeIt(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.push("app", "1.2.0", image{})
+	e.push("tool", "1.0.0", image{})
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n  ci:\n    image: %s\n",
+		e.ref("app", "1.0.0"), e.ref("tool", "1.0.0")))
+
+	rep, _ := e.checkCompact()
+	assertEq(t, "docker_available", rep.DockerAvailable, true)
+	api := rep.image(t, "demo", "api")
+	assertEq(t, "status", api.Status, "update-available")
+	assertEq(t, "version", api.Version, "1.0.0")
+	assertEq(t, "candidate", api.Candidate, "1.2.0")
+	// A candidate turns update-available from a nag into an action; the
+	// reason fields stay empty because the verdict is not in question.
+	assertEq(t, "error", api.Err, "")
+	assertEq(t, "identity note", api.IdentityNote, "")
+	// The candidate belongs to the service, not to the stack.
+	assertEq(t, "ci candidate", rep.image(t, "demo", "ci").Candidate, "")
+}
+
+// Exactly the promised fields, on a row that has the least to say: a field
+// that appears only when it is populated is a field a consumer has to test
+// for, and a field that was not promised is one it will come to depend on.
+func TestCheckCompactCarriesOnlyTheFieldsItPromised(t *testing.T) {
+	e := newEnv(t)
+	deployed := e.push("app", "1.0.0", image{})
+	e.docker.running(container{Project: "demo", Service: "api", ImageID: "sha256:local",
+		RepoDigests: []string{"app@" + deployed}})
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	// The row itself is the artifact: a compact document nobody can parse
+	// without a schema is not compact.
+	rep, doc := e.checkCompact()
+	assertEq(t, "status", rep.image(t, "demo", "api").Status, "current")
+	assertEqSlice(t, "top-level keys", compactKeys(t, doc), []string{"docker_available", "images"})
+	assertEqSlice(t, "row keys", compactRowKeys(t, doc),
+		[]string{"candidate", "error", "identity_note", "service", "stack", "status", "version"})
+}
+
+func TestCheckCompactSaysWhyARowIsUnknown(t *testing.T) {
+	e := newEnv(t)
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("ghost", "1.0.0")))
+
+	rep, _ := e.checkCompact()
+	row := rep.image(t, "demo", "api")
+	assertEq(t, "status", row.Status, "unknown")
+	// Only one of the two reasons applies here, and the other stays empty
+	// rather than saying something that did not happen.
+	assertContains(t, "error", row.Err, "ghost")
+	assertEq(t, "identity note", row.IdentityNote, "")
+}
+
+// An unresolved Compose project identity is the other route to unknown, and it
+// carries its reason in identity_note with the error field empty.
+func TestCheckCompactCarriesAnIdentityNoteWithoutAnError(t *testing.T) {
+	e := newEnv(t)
+	declared := e.push("app", "1.0.0", image{})
+	file := e.enrollStack("cache", fmt.Sprintf("services:\n  api:\n    image: %s@%s\n", e.ref("app", "1.0.0"), declared))
+	one := container{Project: "one", WorkingDir: filepath.Dir(file), ConfigFiles: file,
+		Service: "api", ImageID: "sha256:one", RepoDigests: []string{"app@" + declared}}
+	two := container{Project: "two", WorkingDir: filepath.Dir(file), ConfigFiles: file,
+		Service: "api", ImageID: "sha256:two", RepoDigests: []string{"app@" + declared}}
+	e.docker.running(one, two)
+
+	rep, _ := e.checkCompact()
+	row := rep.image(t, "cache", "api")
+	assertEq(t, "status", row.Status, "unknown")
+	assertEq(t, "error", row.Err, "")
+	assertContains(t, "identity note", row.IdentityNote, "one", "two", "set-project")
+}
+
+// Every compact row is qualified by whether the daemon was reachable at all,
+// so the flag that qualifies them cannot live inside one.
+func TestCheckCompactSaysWhenDockerWasNeverConsulted(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.set("STACKMON_DOCKER_SOCKET", filepath.Join(e.root, "absent.sock"))
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	rep, _ := e.checkCompact()
+	assertEq(t, "docker_available", rep.DockerAvailable, false)
+	// A missing signal is not a negative one: without the daemon, "current"
+	// would be a claim nothing checked.
+	if s := rep.image(t, "demo", "api").Status; s == "not-running" {
+		t.Errorf("status = %s, but the daemon was never consulted", s)
+	}
+}
+
+// -c is the same document, and the exit code still carries the verdict: a
+// script reading JSON and a script reading the exit code must not disagree.
+func TestCheckCompactAcceptsTheShortForm(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.push("app", "1.1.0", image{})
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	short := e.exec(devBinary, "check", "-c", "--fail-on-update")
+	full := e.exec(devBinary, "check", "--compact", "--fail-on-update")
+	e.record([]string{"check", "-c", "--fail-on-update"}, short)
+	assertEq(t, "-c and --compact", short.stdout, full.stdout)
+	assertEq(t, "-c candidate", strings.Contains(short.stdout, `"candidate": "1.1.0"`), true)
+	assertCode(t, "check -c --fail-on-update", short.code, 2, short)
+}
