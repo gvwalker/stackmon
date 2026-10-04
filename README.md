@@ -125,13 +125,35 @@ That matching is a guess, and stackmon treats it as one:
 stackmon check
 stackmon check traefik postgres
 stackmon check --json
+stackmon check --compact
 stackmon check --fail-on-update
 stackmon check --fail-on-update --drift-too
 ```
 
 Checks every enrolled stack, or only the supplied stack names. Registry and Docker failures degrade individual rows to `unknown`; they do not hide the rest of the report. Compose parse failures and missing enrolled paths are printed as warnings alongside the usable results.
 
-`--json` emits the report as JSON, including the Compose project each row was matched to, whether that project was bound by enrollment or matched from Docker's labels, and every running replica of the service with the counts of replicas that match, differ, or could not be judged. `--fail-on-update` returns exit code `2` if an `update-available` result exists; `--drift-too` also treats `digest-drift` as an update condition. Use these options for scheduled checks:
+`--json` emits the report as JSON, including the Compose project each row was matched to, whether that project was bound by enrollment or matched from Docker's labels, and every running replica of the service with the counts of replicas that match, differ, or could not be judged. `--compact` (`-c`) emits JSON with only the fields a script acting on the verdict needs, and is a stable shape: every field is present on every row, empty included.
+
+```json
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "update-available",
+      "version": "1.0.0",
+      "candidate": "1.2.0",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+```
+
+`docker_available` is top-level because it qualifies every row: when the socket is down, a row is missing the running-container signal rather than reporting that nothing runs. `candidate` is what supersedes `version`, so `update-available` names the action; it is empty when nothing does. `error` and `identity_note` are the two reasons a row can be `unknown` — a probe that failed, and a Compose project that could not be resolved — and each is empty unless it is the reason.
+
+`--fail-on-update` returns exit code `2` if an `update-available` result exists; `--drift-too` also treats `digest-drift` as an update condition. Both work with any output form. Use these options for scheduled checks:
 
 ```sh
 stackmon check --fail-on-update >/var/log/stackmon.log

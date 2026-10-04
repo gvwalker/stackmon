@@ -758,6 +758,165 @@ STACK      SERVICE  VERSION  STATUS            DETAIL
 Nextcloud  cloud    1.0.0    update-available  1.1.0 available (minor)
 --- exit 0 ---
 
+### TestCheckCompactCarriesTheVerdictAndWhatWouldChangeIt
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckCompactCarriesTheVerdictAndWhatWouldChangeIt
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "update-available",
+      "version": "1.0.0",
+      "candidate": "1.2.0",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "ci",
+      "status": "not-running",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestCheckCompactCarriesOnlyTheFieldsItPromised
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckCompactCarriesOnlyTheFieldsItPromised
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "current",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestCheckCompactSaysWhyARowIsUnknown
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckCompactSaysWhyARowIsUnknown
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "unknown",
+      "version": "",
+      "candidate": "",
+      "error": "registry: fetching REGISTRY/ghost:1.0.0: GET http://REGISTRY/v2/ghost/manifests/1.0.0: NAME_UNKNOWN: Unknown name",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestCheckCompactCarriesAnIdentityNoteWithoutAnError
+$ stackmon enroll ROOT/srv/cache
+--- stdout ---
+enrolled cache (ROOT/srv/cache/compose.yaml)
+--- exit 0 ---
+
+### TestCheckCompactCarriesAnIdentityNoteWithoutAnError
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "cache",
+      "service": "api",
+      "status": "unknown",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": "ambiguous: one and two all run ROOT/srv/cache/compose.yaml; bind the one meant with \"stackmon inventory set-project cache <project>\""
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestCheckCompactSaysWhenDockerWasNeverConsulted
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckCompactSaysWhenDockerWasNeverConsulted
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": false,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "current",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestCheckCompactAcceptsTheShortForm
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckCompactAcceptsTheShortForm
+$ stackmon check -c --fail-on-update
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "update-available",
+      "version": "1.0.0",
+      "candidate": "1.1.0",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 2 ---
+
 ### TestDiscoverFindsStacksBelowConfiguredRoots
 $ stackmon discover
 --- stdout ---

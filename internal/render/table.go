@@ -1,6 +1,6 @@
-// Package render turns a report into human-readable output. It consumes
-// package report and nothing else, so that a TUI or web view can be added
-// later as an additive consumer.
+// Package render turns a report into output a human or a script can read. It
+// consumes package report and nothing else, so that a TUI or web view can be
+// added later as an additive consumer.
 package render
 
 import (

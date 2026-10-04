@@ -20,6 +20,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -671,6 +673,85 @@ func shortDigest(digest string) string {
 	return digest
 }
 
+// ---------------------------------------------------------------------------
+// Decoded `check --compact`
+// ---------------------------------------------------------------------------
+
+// compactReport and compactRow are the compact form's contract. Decoding
+// ignores fields that are not listed here, so keys(t) against the raw
+// document is what holds the shape to exactly the promised set.
+type compactReport struct {
+	DockerAvailable bool         `json:"docker_available"`
+	Images          []compactRow `json:"images"`
+}
+
+type compactRow struct {
+	Stack        string `json:"stack"`
+	Service      string `json:"service"`
+	Status       string `json:"status"`
+	Version      string `json:"version"`
+	Candidate    string `json:"candidate"`
+	Err          string `json:"error"`
+	IdentityNote string `json:"identity_note"`
+}
+
+// compactKeys returns the top-level keys of a `check --compact` document.
+func compactKeys(t *testing.T, stdout string) []string {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("check --compact: %v\n%s", err, stdout)
+	}
+	return slices.Sorted(maps.Keys(doc))
+}
+
+// compactRowKeys returns the keys of one compact row.
+func compactRowKeys(t *testing.T, stdout string) []string {
+	t.Helper()
+	var doc struct {
+		Images []map[string]any `json:"images"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+		t.Fatalf("check --compact: %v\n%s", err, stdout)
+	}
+	if len(doc.Images) == 0 {
+		t.Fatalf("check --compact: no rows in\n%s", stdout)
+	}
+	return slices.Sorted(maps.Keys(doc.Images[0]))
+}
+
+// checkCompact runs `check --compact`, decodes it, and records the compact
+// form itself in the artifact: this form exists to be read by someone else, so
+// its bytes are the thing worth holding to a golden. The raw document is
+// returned alongside the decoded form, for the assertions that are about the
+// shape rather than the values.
+func (e *env) checkCompact(args ...string) (compactReport, string) {
+	e.t.Helper()
+	full := append([]string{"check", "--compact"}, args...)
+	r := e.exec(devBinary, full...)
+	if r.code != 0 {
+		e.t.Fatalf("check --compact: exit %d\n%s%s", r.code, r.stdout, r.stderr)
+	}
+	var rep compactReport
+	if err := json.Unmarshal([]byte(r.stdout), &rep); err != nil {
+		e.t.Fatalf("check --compact: %v\n%s", err, r.stdout)
+	}
+	e.record(full, r)
+	return rep, r.stdout
+}
+
+// image returns the compact row for one service.
+func (rep compactReport) image(t *testing.T, stack, service string) compactRow {
+	t.Helper()
+	for _, i := range rep.Images {
+		if i.Stack == stack && i.Service == service {
+			return i
+		}
+	}
+	t.Fatalf("no row for %s/%s in report: %+v", stack, service, rep.Images)
+	return compactRow{}
+}
+
 // enrollStack writes a stack's compose file, enrolls it, and returns the
 // path. An enroll that does not succeed fails the scenario: every later step
 // depends on it.
@@ -716,6 +797,13 @@ func assertCode(t *testing.T, what string, got, want int, r result) {
 	t.Helper()
 	if got != want {
 		t.Errorf("%s: exit code = %d, want %d\nstdout: %s\nstderr: %s", what, got, want, r.stdout, r.stderr)
+	}
+}
+
+func assertEqSlice(t *testing.T, what string, got, want []string) {
+	t.Helper()
+	if !slices.Equal(got, want) {
+		t.Errorf("%s:\n got: %v\nwant: %v", what, got, want)
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 )
 
 func newCheckCmd() *cobra.Command {
-	var asJSON, failOnUpdate, driftToo bool
+	var asJSON, compact, failOnUpdate, driftToo bool
 
 	cmd := &cobra.Command{
 		Use:   "check [stack...]",
@@ -20,14 +20,23 @@ func newCheckCmd() *cobra.Command {
 				return err
 			}
 
-			if asJSON {
+			switch {
+			case compact:
+				// --compact is a JSON form, not a formatting option, so it
+				// stands on its own and --json adds nothing to it.
+				if err := render.CompactJSON(cmd.OutOrStdout(), r); err != nil {
+					return err
+				}
+			case asJSON:
 				enc := json.NewEncoder(cmd.OutOrStdout())
 				enc.SetIndent("", "  ")
 				if err := enc.Encode(r); err != nil {
 					return err
 				}
-			} else if err := render.Table(cmd.OutOrStdout(), r); err != nil {
-				return err
+			default:
+				if err := render.Table(cmd.OutOrStdout(), r); err != nil {
+					return err
+				}
 			}
 
 			if failOnUpdate && (r.HasUpdates() || (driftToo && r.HasDrift())) {
@@ -37,6 +46,7 @@ func newCheckCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the report as JSON")
+	cmd.Flags().BoolVarP(&compact, "compact", "c", false, "emit JSON carrying only the actionable fields")
 	cmd.Flags().BoolVar(&failOnUpdate, "fail-on-update", false, "exit 2 when an update is available")
 	cmd.Flags().BoolVar(&driftToo, "drift-too", false, "with --fail-on-update, also exit 2 on digest drift")
 	cmd.ValidArgsFunction = completeEnrolledStacks
