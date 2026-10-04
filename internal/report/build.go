@@ -56,12 +56,19 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 
 	r := Report{Generated: time.Now().UTC()}
 
-	// The running-container signal is optional.
+	// The running-container signal is optional. A socket that exists but
+	// whose listing fails is not an absent signal: the failure reason is
+	// threaded into the report so a verified "current" is never claimed from
+	// a check that never ran.
 	var containers []local.Container
+	var runningErr string
 	if opts.Docker != nil && opts.Docker.Available() {
 		if cs, err := opts.Docker.Containers(ctx); err == nil {
 			r.DockerAvailable = true
 			containers = cs
+		} else {
+			runningErr = err.Error()
+			r.DockerError = runningErr
 		}
 	}
 	running := local.Index(containers)
@@ -153,7 +160,7 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 		// is given to every service in it.
 		identity := resolveIdentity(st, containers, r.DockerAvailable)
 		for _, svc := range st.Services {
-			r.Images = append(r.Images, assemble(st, svc, probes[svc.Ref.Resolved], running, identity, r.DockerAvailable, opts.Config))
+			r.Images = append(r.Images, assemble(st, svc, probes[svc.Ref.Resolved], running, identity, r.DockerAvailable, runningErr, opts.Config))
 		}
 	}
 
@@ -306,7 +313,7 @@ func compareReplicas(img *Image) {
 	img.ReplicaComparison.Incomplete = img.ReplicaComparison.Unknown > 0
 }
 
-func assemble(st compose.Stack, svc compose.Service, p probe, running map[string][]local.Container, id identity, dockerUp bool, cfg config.Config) Image {
+func assemble(st compose.Stack, svc compose.Service, p probe, running map[string][]local.Container, id identity, dockerUp bool, runningErr string, cfg config.Config) Image {
 	img := Image{
 		Stack:          st.Name,
 		Service:        svc.Name,
@@ -316,10 +323,11 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 		ProjectBound:   id.bound,
 		IdentityNote:   id.note,
 		DockerChecked:  dockerUp,
+		RunningError:   runningErr,
 	}
 
 	for _, c := range running[id.project+"/"+svc.Name] {
-		img.Replicas = append(img.Replicas, Replica{Image: c.Image, Digests: c.RepoDigests})
+		img.Replicas = append(img.Replicas, Replica{Image: c.Image, Digests: c.RepoDigests, DigestError: c.DigestError})
 	}
 	img.Running = len(img.Replicas) > 0
 

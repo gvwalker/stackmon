@@ -15,7 +15,13 @@ import (
 // Table writes one row per image.
 func Table(w io.Writer, r report.Report) error {
 	if !r.DockerAvailable {
-		if _, err := fmt.Fprintln(w, "note: docker socket unavailable; running-container state was not checked"); err != nil {
+		if r.DockerError != "" {
+			// A socket that exists but answers with an error is not an
+			// absent socket: say so from the actual reason.
+			if _, err := fmt.Fprintf(w, "note: docker socket present but container listing failed: %s; running-container state was not verified\n", r.DockerError); err != nil {
+				return err
+			}
+		} else if _, err := fmt.Fprintln(w, "note: docker socket unavailable; running-container state was not checked"); err != nil {
 			return err
 		}
 	}
@@ -46,10 +52,11 @@ func detailCell(i report.Image) string {
 	var cell string
 	switch i.Status {
 	case report.StatusUnknown:
-		// Three different reasons to say nothing definite: a failed probe,
-		// a project identity that could not be established, and a replica
-		// with no digest to judge.
-		cell = firstNonEmpty(i.Err, i.IdentityNote, note)
+		// Several different reasons to say nothing definite: a failed probe,
+		// a project identity that could not be established, a replica with
+		// no digest to judge, and a daemon probe that failed. Any of them
+		// blocks "current" just as much as the registry returning a 500.
+		cell = firstNonEmpty(i.Err, i.RunningError, i.IdentityNote, note)
 		return cell
 	case report.StatusUpdateAvailable:
 		if i.KindName != "" {
@@ -81,6 +88,16 @@ func detailCell(i report.Image) string {
 			return note
 		}
 		cell += "; " + note
+	}
+	// A row can carry an independent finding (an update, drift) even when
+	// the running-state check failed: keep the finding, but do not let the
+	// row read as a fully verified verdict.
+	if i.RunningError != "" && i.Status != report.StatusUnknown {
+		if cell == "" {
+			cell = "running-state check failed"
+		} else {
+			cell += "; running-state check failed"
+		}
 	}
 	return cell
 }

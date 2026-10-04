@@ -54,6 +54,9 @@ type Container struct {
 	// exactly the declared digest. Empty when the image has no
 	// RepoDigests entry, e.g. built locally and never pushed.
 	RepoDigests []string
+	// DigestError is why RepoDigests stayed empty when it did: a failed
+	// daemon lookup, not a legitimately digest-less image.
+	DigestError string
 	// OneOff marks a container started by `docker compose run`. Such a
 	// container is a finished job, not a Replica of a running Service, so
 	// consumers that reason about a project's up state must skip it.
@@ -145,6 +148,7 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 	// Cached per ImageID within this call, so N containers sharing an
 	// image cost one extra request, not N.
 	digests := map[string][]string{}
+	digestErrs := map[string]error{}
 	for _, r := range raw {
 		project, service := r.Labels[labelProject], r.Labels[labelService]
 		if project == "" || service == "" {
@@ -152,16 +156,20 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 		}
 
 		var digs []string
+		var inspectErr error
 		if r.ImageID != "" {
 			d, ok := digests[r.ImageID]
 			if !ok {
-				d = c.repoDigests(ctx, r.ImageID)
+				d, inspectErr = c.repoDigests(ctx, r.ImageID)
+				digestErrs[r.ImageID] = inspectErr
 				digests[r.ImageID] = d
+			} else {
+				inspectErr = digestErrs[r.ImageID]
 			}
 			digs = d
 		}
 
-		out = append(out, Container{
+		cont := Container{
 			Project:            project,
 			ProjectWorkingDir:  r.Labels[labelProjectWorkingDir],
 			ProjectConfigFiles: r.Labels[labelProjectConfigFiles],
@@ -169,37 +177,44 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 			Image:              r.Image,
 			RepoDigests:        digs,
 			OneOff:             strings.EqualFold(r.Labels[labelOneOff], "true"),
-		})
+		}
+		if inspectErr != nil {
+			cont.DigestError = inspectErr.Error()
+		}
+		out = append(out, cont)
 	}
 	return out, nil
 }
 
 // repoDigests resolves imageID's manifest digests via GET /images/{id}/json.
-// The running-container signal is best-effort: a request failure or an
-// image with no RepoDigests entry (built locally, never pushed) yields a
-// nil slice rather than failing the whole Containers call. Docker records
-// one entry per manifest digest the image has ever been pulled under, so
-// every entry is returned, not just the first: the same repository can
-// legitimately appear twice under different digests after a retag.
-func (c *Client) repoDigests(ctx context.Context, imageID string) []string {
+// An image with no RepoDigests entry (built locally, never pushed) is
+// reported as an empty slice and no error: it is legitimately digest-less.
+// A request failure, a non-200, or an undecodable response is an error, and
+// the caller keeps it on the Container instead of collapsing it into
+// "no digests", so a failed lookup is never mistaken for a local build.
+// Docker records one entry per manifest digest the image has ever been
+// pulled under, so every entry is returned, not just the first: the same
+// repository can legitimately appear twice under different digests after a
+// retag.
+func (c *Client) repoDigests(ctx context.Context, imageID string) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/v1.44/images/"+imageID+"/json", nil)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("local: building image inspect request: %w", err)
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("local: inspecting image %s: %w", imageID, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil
+		return nil, fmt.Errorf("local: inspecting image %s: docker returned %s", imageID, resp.Status)
 	}
 
 	var img apiImageInspect
 	if err := json.NewDecoder(resp.Body).Decode(&img); err != nil {
-		return nil
+		return nil, fmt.Errorf("local: decoding image inspect for %s: %w", imageID, err)
 	}
 
 	out := make([]string, 0, len(img.RepoDigests))
@@ -208,7 +223,7 @@ func (c *Client) repoDigests(ctx context.Context, imageID string) []string {
 			out = append(out, rd[i+1:])
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Index keys containers by "project/service" for lookup during report

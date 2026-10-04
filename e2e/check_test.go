@@ -287,6 +287,172 @@ func TestCheckSaysSoWhenDockerIsUnavailable(t *testing.T) {
 }
 
 // A moved or unmounted stack is a fact about the world, not a stackmon
+// failure: warn, keep going, exit 0. The same fact is carried in the
+// report's Diagnostics, so a JSON consumer can tell a partial inventory
+// from a healthy one.
+func TestCheckReportsIncompleteWhenAStackMoved(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.enrollStack("gone", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+	e.enrollStack("here", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+	if err := os.RemoveAll(filepath.Join(e.stacks(), "gone")); err != nil {
+		t.Fatal(err)
+	}
+
+	rep := e.checkJSON()
+	d := rep.Diagnostics
+	assertEq(t, "stacks checked", d.StacksChecked, 1)
+	assertEq(t, "stacks skipped", d.StacksSkipped, 1)
+	assertEq(t, "services checked", d.ServicesChecked, 1)
+	if len(d.MissingStacks) != 1 || d.MissingStacks[0].Stack != "gone" {
+		t.Errorf("missing stacks = %+v, want [gone]", d.MissingStacks)
+	}
+	assertCode(t, "check --fail-on-incomplete", e.run("check", "--fail-on-incomplete").code, 3, result{})
+}
+
+// A parse failure blanks no other stack, and the report must say so
+// itself: skipped stack with the reason, alongside the stacks that did
+// parse.
+func TestCheckReportsAParseFailureInDiagnostics(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.enrollStack("broken", "services:\n  api:\n    image: ${REQUIRED_IMAGE:?must be set}\n")
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	rep := e.checkJSON()
+	d := rep.Diagnostics
+	assertEq(t, "stacks checked", d.StacksChecked, 1)
+	assertEq(t, "stacks skipped", d.StacksSkipped, 1)
+	if len(d.ParseFailures) != 1 || d.ParseFailures[0].Stack != "broken" || d.ParseFailures[0].Reason == "" {
+		t.Errorf("parse failures = %+v, want broken with a reason", d.ParseFailures)
+	}
+	assertEq(t, "demo row kept", rep.image(t, "demo", "api").Status, "not-running")
+	assertCode(t, "check --fail-on-incomplete", e.run("check", "--fail-on-incomplete").code, 3, result{})
+}
+
+// Every enrolled stack failing must not look like an empty inventory: the
+// counts and the reasons say zero checked, N skipped.
+func TestCheckDistinguishesAllStacksFailedFromEmpty(t *testing.T) {
+	e := newEnv(t)
+	e.enrollStack("broken", "services:\n  api:\n    image: ${REQUIRED_IMAGE:?must be set}\n")
+
+	rep := e.checkJSON()
+	d := rep.Diagnostics
+	assertEq(t, "stacks checked", d.StacksChecked, 0)
+	assertEq(t, "stacks skipped", d.StacksSkipped, 1)
+	assertEq(t, "services checked", d.ServicesChecked, 0)
+	assertEq(t, "images", len(rep.Images), 0)
+	assertCode(t, "check --fail-on-incomplete", e.run("check", "--fail-on-incomplete").code, 3, result{})
+}
+
+// A socket that answers with an error keeps the reason, claims no verified
+// running state, and marks the comparison incomplete. With no independently
+// actionable finding the row cannot be "current" or "not-running".
+func TestCheckWithAFailingDaemonDoesNotClaimVerifiedState(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.docker.fail()
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	rep := e.checkJSON()
+	assertEq(t, "docker available", rep.DockerAvailable, false)
+	if rep.DockerError == "" {
+		t.Error("docker_error is empty, want the daemon's failure reason")
+	}
+	row := rep.image(t, "demo", "api")
+	assertEq(t, "status", row.Status, "unknown")
+	if row.RunningError == "" {
+		t.Error("running_error is empty, want the daemon's failure reason")
+	}
+	got := e.run("check")
+	assertContains(t, "table", got.stdout, "listing failed", "daemon is unhappy")
+	assertCode(t, "check", got.code, 0, got)
+	assertCode(t, "check --fail-on-incomplete", e.run("check", "--fail-on-incomplete").code, 3, result{})
+}
+
+// The failing-daemon case must not erase independently established
+// findings: an update stays an update, now carrying the unverified-running
+// caveat.
+func TestCheckWithAFailingDaemonKeepsIndependentUpdatesVisible(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.push("app", "1.1.0", image{})
+	e.docker.fail()
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	row := e.checkJSON().image(t, "demo", "api")
+	assertEq(t, "status", row.Status, "update-available")
+	if row.RunningError == "" {
+		t.Error("running_error is empty on an update-available row, want the unverified-running caveat")
+	}
+	assertContains(t, "statuses", strings.Join(row.Statuses, ","), "update-available", "unknown")
+	assertCode(t, "check --fail-on-incomplete", e.run("check", "--fail-on-incomplete").code, 3, result{})
+}
+
+// Absent optional socket keeps file/Registry-only behavior and never counts
+// as a probe failure: default exit 0, and --fail-on-incomplete passes.
+func TestCheckWithAbsentSocketIsNotAFailure(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.set("STACKMON_DOCKER_SOCKET", filepath.Join(e.root, "absent.sock"))
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	rep := e.checkJSON()
+	assertEq(t, "docker available", rep.DockerAvailable, false)
+	assertEq(t, "docker error", rep.DockerError, "")
+	assertEq(t, "running_error", rep.image(t, "demo", "api").RunningError, "")
+	assertContains(t, "table", e.run("check").stdout, "docker socket unavailable")
+	assertCode(t, "check --fail-on-incomplete", e.run("check", "--fail-on-incomplete").code, 0, result{})
+}
+
+// A container-list failure hid running state from the report; an image that
+// legitimately has no RepoDigests (built locally) is the opposite fact and
+// must keep its distinct representation.
+func TestCheckDistinguishesFailedInspectFromLegitimatelyAbsentDigests(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.docker.running(
+		container{Project: "demo", Service: "api", ImageID: "sha256:local"},
+		container{Project: "demo", Service: "local", Image: "app:local", ImageID: ""},
+	)
+	e.docker.failImageLookups()
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n  local:\n    image: %s\n",
+		e.ref("app", "1.0.0"), e.ref("app", "1.0.0")))
+
+	rep := e.checkJSON()
+	api := rep.image(t, "demo", "api")
+	if len(api.Replicas) != 1 || api.Replicas[0].DigestError == "" {
+		t.Errorf("api replicas = %+v, want one with digest_error set", api.Replicas)
+	}
+	local := rep.image(t, "demo", "local")
+	if len(local.Replicas) != 1 || local.Replicas[0].DigestError != "" || len(local.Replicas[0].Digests) != 0 {
+		t.Errorf("local replicas = %+v, want one with neither digests nor digest_error", local.Replicas)
+	}
+	assertCode(t, "check --fail-on-incomplete", e.run("check", "--fail-on-incomplete").code, 3, result{})
+}
+
+// Exit 2 keeps its reserved meaning: when updates and incomplete checks
+// coincide, --fail-on-update's code wins; incomplete alone is 3.
+func TestCheckFailOnUpdateWinsOverIncompleteExits(t *testing.T) {
+	e := newEnv(t)
+	e.push("app", "1.0.0", image{})
+	e.push("app", "1.1.0", image{})
+	e.docker.fail()
+	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0")))
+
+	both := e.run("check", "--fail-on-update", "--fail-on-incomplete")
+	assertCode(t, "updates + incomplete", both.code, 2, both)
+	incompleteOnly := e.run("check", "--fail-on-incomplete")
+	assertCode(t, "incomplete only", incompleteOnly.code, 3, incompleteOnly)
+	e2 := newEnv(t)
+	e2.push("app", "1.0.0", image{})
+	e2.push("app", "1.1.0", image{})
+	e2.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e2.ref("app", "1.0.0")))
+	healthy := e2.run("check", "--fail-on-incomplete")
+	assertCode(t, "healthy incomplete flag", healthy.code, 0, healthy)
+}
+
+// A moved or unmounted stack is a fact about the world, not a stackmon
 // failure: warn, keep going, exit 0.
 func TestCheckWarnsAboutAStackThatMoved(t *testing.T) {
 	e := newEnv(t)

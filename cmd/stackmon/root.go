@@ -12,11 +12,14 @@ import (
 )
 
 // Exit codes. 2 is reserved for --fail-on-update so that cron can alert on
-// available updates without treating them as errors.
+// available updates without treating them as errors. 3 signals incomplete
+// checks when --fail-on-incomplete is set; when both would apply, 2 wins,
+// because that code is reserved for the update alert.
 const (
-	exitOK      = 0
-	exitError   = 1
-	exitUpdates = 2
+	exitOK         = 0
+	exitError      = 1
+	exitUpdates    = 2
+	exitIncomplete = 3
 )
 
 var (
@@ -76,7 +79,19 @@ func loadInventory() (inventory.Inventory, string, error) {
 // itself failing, and one moved directory must not blank the whole report.
 // Only an explicitly named stack that isn't enrolled at all is a hard
 // error -- that's a user mistake, not a runtime fact to degrade around.
-func resolve(inv inventory.Inventory, names []string) ([]inventory.Stack, []error, error) {
+// missingStack is an enrolled stack whose compose file no longer resolves on
+// disk: an unmounted drive, a moved directory. It is a fact about the world,
+// not a stackmon failure, so it warns rather than aborts.
+type missingStack struct {
+	name string
+	path string
+}
+
+func (m missingStack) Error() string {
+	return fmt.Sprintf("enrolled stack %q no longer exists at %s; re-enroll it or run 'stackmon unenroll %s'", m.name, m.path, m.name)
+}
+
+func resolve(inv inventory.Inventory, names []string) ([]inventory.Stack, []missingStack, error) {
 	var candidates []inventory.Stack
 
 	if len(names) == 0 {
@@ -92,10 +107,10 @@ func resolve(inv inventory.Inventory, names []string) ([]inventory.Stack, []erro
 	}
 
 	var out []inventory.Stack
-	var missing []error
+	var missing []missingStack
 	for _, s := range candidates {
 		if _, err := os.Stat(filepath.Join(s.Dir, s.File)); err != nil {
-			missing = append(missing, fmt.Errorf("enrolled stack %q no longer exists at %s; re-enroll it or run 'stackmon unenroll %s'", s.Name, s.Path(), s.Name))
+			missing = append(missing, missingStack{name: s.Name, path: s.Path()})
 			continue
 		}
 		out = append(out, s)
