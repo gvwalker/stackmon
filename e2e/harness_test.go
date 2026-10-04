@@ -550,8 +550,25 @@ func (e *env) environ() []string {
 // report and row are the machine-readable contract: the field names here are
 // the JSON keys, so a rename shows up as a decode failure.
 type report struct {
-	DockerAvailable bool  `json:"docker_available"`
-	Images          []row `json:"images"`
+	DockerAvailable bool        `json:"docker_available"`
+	DockerError     string      `json:"docker_error"`
+	Images          []row       `json:"images"`
+	Diagnostics     diagnostics `json:"diagnostics"`
+}
+
+type diagnostics struct {
+	MissingStacks   []stackFailure `json:"missing_stacks"`
+	ParseFailures   []stackFailure `json:"parse_failures"`
+	ServiceWarnings []stackFailure `json:"service_warnings"`
+	StacksChecked   int            `json:"stacks_checked"`
+	StacksSkipped   int            `json:"stacks_skipped"`
+	ServicesChecked int            `json:"services_checked"`
+	ServicesSkipped int            `json:"services_skipped"`
+}
+
+type stackFailure struct {
+	Stack  string
+	Reason string
 }
 
 type row struct {
@@ -578,6 +595,7 @@ type row struct {
 	Status           string
 	Statuses         []string `json:"statuses"`
 	Err              string   `json:"error"`
+	RunningError     string   `json:"running_error"`
 }
 
 // replicaView is the same shape whether it describes one running container or
@@ -585,6 +603,7 @@ type row struct {
 type replicaView struct {
 	Image       string   `json:"image"`
 	Digests     []string `json:"digests"`
+	DigestError string   `json:"digest_error"`
 	Compared    string   `json:"compared"`
 	Matching    int      `json:"matching"`
 	Mismatching int      `json:"mismatching"`
@@ -979,6 +998,10 @@ type fakeDocker struct {
 	mu         sync.Mutex
 	containers []container
 	broken     bool
+	// failImages makes /images/{id}/json answer 500, as when the daemon
+	// cannot serve inspect data: a different fact from an image that
+	// legitimately has no RepoDigests.
+	failImages bool
 	// imageLookups counts /images/{id}/json requests, so a scenario can prove
 	// N containers sharing an image cost one lookup, not N.
 	imageLookups int
@@ -1032,6 +1055,11 @@ func newFakeDocker(t *testing.T, composeFile func(project string) (string, bool)
 		defer d.mu.Unlock()
 		d.imageLookups++
 		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
+		if d.failImages {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"inspect unavailable"}`))
+			return
+		}
 		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1.44/images/"), "/json")
 		for _, c := range d.containers {
 			if c.ImageID == id {
@@ -1087,6 +1115,14 @@ func (d *fakeDocker) fail() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.broken = true
+}
+
+// failImageLookups makes image inspection fail while the container listing
+// keeps working: a partial failure, distinct from a failed listing.
+func (d *fakeDocker) failImageLookups() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.failImages = true
 }
 
 func (d *fakeDocker) lookups() int {

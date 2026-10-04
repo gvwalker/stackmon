@@ -128,6 +128,7 @@ stackmon check --json
 stackmon check --compact
 stackmon check --fail-on-update
 stackmon check --fail-on-update --drift-too
+stackmon check --fail-on-incomplete
 ```
 
 Checks every enrolled stack, or only the supplied stack names. Registry and Docker failures degrade individual rows to `unknown`; they do not hide the rest of the report. Compose parse failures and missing enrolled paths are printed as warnings alongside the usable results.
@@ -151,7 +152,7 @@ Checks every enrolled stack, or only the supplied stack names. Registry and Dock
 }
 ```
 
-`docker_available` is top-level because it qualifies every row: when the socket is down, a row is missing the running-container signal rather than reporting that nothing runs. `candidate` is what supersedes `version`, so `update-available` names the action; it is empty when nothing does. `error` and `identity_note` are the two reasons a row can be `unknown` — a probe that failed, and a Compose project that could not be resolved — and each is empty unless it is the reason.
+`docker_available` is top-level because it qualifies every row: when the socket is down, a row is missing the running-container signal rather than reporting that nothing runs. `candidate` is what supersedes `version`, so `update-available` names the action; it is empty when nothing does. `error`, `identity_note`, and `running_error` are the three reasons a row can be `unknown` — a probe that failed, a Compose project that could not be resolved, and a Docker running-state check that failed — and each is empty unless it is the reason. `running_error` can also qualify an independent finding: a row can be `update-available` while its running state went unverified.
 
 `--fail-on-update` returns exit code `2` if an `update-available` result exists; `--drift-too` also treats `digest-drift` as an update condition. Both work with any output form. Use these options for scheduled checks:
 
@@ -163,6 +164,29 @@ case $? in
   *) echo "stackmon failed" >&2 ;;
 esac
 ```
+
+`--fail-on-incomplete` returns exit code `3` when a required check was skipped or failed: an enrolled path that vanished, a compose file that did not parse, a service dropped on a parse warning, a Docker socket that exists but whose container listing fails, a failed image inspection, a failed registry probe, or an unresolved Compose project identity. Without the flag the defaults are unchanged: best-effort, exit `0`. An absent optional Docker socket is never an incomplete check. When updates and incomplete checks coincide, exit `2` wins, because `2` is reserved for the update alert.
+
+The report carries diagnostics a consumer does not have to scrape stderr for:
+
+```json
+{
+  "docker_available": false,
+  "docker_error": "local: docker returned 500 Internal Server Error: ...",
+  "diagnostics": {
+    "missing_stacks": [{"stack": "gone", "reason": "no longer exists at /srv/gone/compose.yaml"}],
+    "parse_failures": [{"stack": "broken", "reason": "compose: ..."}],
+    "service_warnings": [],
+    "stacks_checked": 8,
+    "stacks_skipped": 2,
+    "services_checked": 14,
+    "services_skipped": 1
+  },
+  "images": [ ... ]
+}
+```
+
+`docker_available` + `docker_error` together distinguish the three Docker states: available/empty means the daemon answered; unavailable/empty means the optional socket was absent and the run fell back to file/Registry-only behavior; unavailable/set means the socket existed but the probe failed, so rows carry `running_error` and no row claims a verified `current` or `not-running`. Each running replica records `digest_error` when its digest lookup failed, which is distinct from a legitimately digest-less image (locally built, no `RepoDigests`), represented by an empty digest list and no error. Counts: `stacks_checked` parsed and produced rows; `stacks_skipped` were missing or failed to parse, so an empty inventory (all zeros) is distinguishable from a run where every enrolled stack failed.
 
 ### `show`
 
@@ -252,7 +276,7 @@ A Docker socket is optional. If it is absent or unreadable, stackmon produces a 
 - Stack paths may sit outside discovery roots; roots are a discovery convenience, not an enrollment restriction.
 - Registry requests are concurrent up to `concurrency`, and repeated image references are deduplicated within a check.
 - Floating or opaque tags are tracked for digest changes unless a safe candidate constraint exists. Stackmon does not guess a major-version migration.
-- The default exit code is `0` even when updates or drift exist. Exit `1` means stackmon itself could not complete, such as an invalid configuration or unreadable inventory. Exit `2` is reserved for `--fail-on-update`.
+- The default exit code is `0` even when updates or drift exist. Exit `1` means stackmon itself could not complete, such as an invalid configuration or unreadable inventory. Exit `2` is reserved for `--fail-on-update`; exit `3` is returned by `--fail-on-incomplete`, and when both would apply `2` wins.
 - Stackmon does not cache registry responses, notify external systems, schedule runs, manage Kubernetes or Swarm workloads, or deploy changes.
 
 ## Development

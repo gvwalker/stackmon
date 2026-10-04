@@ -46,6 +46,11 @@ func Detail(w io.Writer, i report.Image, rels []notes.Release) error {
 			return err
 		}
 	}
+	if i.RunningError != "" {
+		if _, err := fmt.Fprintf(w, "  running:   %s\n", i.RunningError); err != nil {
+			return err
+		}
+	}
 	if i.IdentityNote != "" {
 		if _, err := fmt.Fprintf(w, "  note:      %s\n", i.IdentityNote); err != nil {
 			return err
@@ -97,6 +102,8 @@ func writeReplicas(w io.Writer, i report.Image) error {
 	for _, r := range i.Replicas {
 		verdict := "differs"
 		switch {
+		case len(r.Digests) == 0 && r.DigestError != "":
+			verdict = "unknown, digest lookup failed"
 		case len(r.Digests) == 0:
 			verdict = "unknown, no recorded digest"
 		case i.ReplicaComparison.Compared == "":
@@ -114,6 +121,11 @@ func writeReplicas(w io.Writer, i report.Image) error {
 		}
 		for _, d := range r.Digests {
 			if _, err := fmt.Fprintf(w, "      digest:  %s\n", d); err != nil {
+				return err
+			}
+		}
+		if r.DigestError != "" {
+			if _, err := fmt.Fprintf(w, "      error:   %s\n", r.DigestError); err != nil {
 				return err
 			}
 		}

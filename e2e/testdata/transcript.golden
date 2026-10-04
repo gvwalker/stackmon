@@ -492,6 +492,222 @@ STACK  SERVICE  VERSION  STATUS   DETAIL
 demo   api      1.0.0    current  
 --- exit 0 ---
 
+### TestCheckReportsIncompleteWhenAStackMoved
+$ stackmon enroll ROOT/srv/gone
+--- stdout ---
+enrolled gone (ROOT/srv/gone/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsIncompleteWhenAStackMoved
+$ stackmon enroll ROOT/srv/here
+--- stdout ---
+enrolled here (ROOT/srv/here/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsIncompleteWhenAStackMoved
+$ stackmon check --json
+  here         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestCheckReportsIncompleteWhenAStackMoved
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+here   api      1.0.0    not-running  no running container
+--- stderr ---
+warning: enrolled stack "gone" no longer exists at ROOT/srv/gone/compose.yaml; re-enroll it or run 'stackmon unenroll gone'
+error: incomplete checks
+--- exit 3 ---
+
+### TestCheckReportsAParseFailureInDiagnostics
+$ stackmon enroll ROOT/srv/broken
+--- stdout ---
+enrolled broken (ROOT/srv/broken/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsAParseFailureInDiagnostics
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsAParseFailureInDiagnostics
+$ stackmon check --json
+  demo         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestCheckReportsAParseFailureInDiagnostics
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   api      1.0.0    not-running  no running container
+--- stderr ---
+warning: broken: compose: loading ROOT/srv/broken/compose.yaml: error while interpolating services.api.image: required variable REQUIRED_IMAGE is missing a value: must be set
+error: incomplete checks
+--- exit 3 ---
+
+### TestCheckDistinguishesAllStacksFailedFromEmpty
+$ stackmon enroll ROOT/srv/broken
+--- stdout ---
+enrolled broken (ROOT/srv/broken/compose.yaml)
+--- exit 0 ---
+
+### TestCheckDistinguishesAllStacksFailedFromEmpty
+$ stackmon check --json
+--- docker available: true ---
+
+### TestCheckDistinguishesAllStacksFailedFromEmpty
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS  DETAIL
+--- stderr ---
+warning: broken: compose: loading ROOT/srv/broken/compose.yaml: error while interpolating services.api.image: required variable REQUIRED_IMAGE is missing a value: must be set
+error: incomplete checks
+--- exit 3 ---
+
+### TestCheckWithAFailingDaemonDoesNotClaimVerifiedState
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWithAFailingDaemonDoesNotClaimVerifiedState
+$ stackmon check --json
+  demo         api        1.0.0      unknown            
+--- docker available: false ---
+
+### TestCheckWithAFailingDaemonDoesNotClaimVerifiedState
+$ stackmon check
+--- stdout ---
+note: docker socket present but container listing failed: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}; running-container state was not verified
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- stderr ---
+warning: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 0 ---
+
+### TestCheckWithAFailingDaemonDoesNotClaimVerifiedState
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+note: docker socket present but container listing failed: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}; running-container state was not verified
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- stderr ---
+warning: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+error: incomplete checks
+--- exit 3 ---
+
+### TestCheckWithAFailingDaemonKeepsIndependentUpdatesVisible
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWithAFailingDaemonKeepsIndependentUpdatesVisible
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: false ---
+
+### TestCheckWithAFailingDaemonKeepsIndependentUpdatesVisible
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+note: docker socket present but container listing failed: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}; running-container state was not verified
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor); running-state check failed
+--- stderr ---
+warning: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+error: incomplete checks
+--- exit 3 ---
+
+### TestCheckWithAbsentSocketIsNotAFailure
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWithAbsentSocketIsNotAFailure
+$ stackmon check --json
+  demo         api        1.0.0      current            
+--- docker available: false ---
+
+### TestCheckWithAbsentSocketIsNotAFailure
+$ stackmon check
+--- stdout ---
+note: docker socket unavailable; running-container state was not checked
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  
+--- exit 0 ---
+
+### TestCheckWithAbsentSocketIsNotAFailure
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+note: docker socket unavailable; running-container state was not checked
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  
+--- exit 0 ---
+
+### TestCheckDistinguishesFailedInspectFromLegitimatelyAbsentDigests
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckDistinguishesFailedInspectFromLegitimatelyAbsentDigests
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [replicas 0/1 match, 0 differ, 1 unknown of aba23cf2b248]
+  demo         local      1.0.0      unknown             [replicas 0/1 match, 0 differ, 1 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestCheckDistinguishesFailedInspectFromLegitimatelyAbsentDigests
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  of 1 replicas, 1 unknown, no digest recorded
+demo   local    1.0.0    unknown  of 1 replicas, 1 unknown, no digest recorded
+--- stderr ---
+error: incomplete checks
+--- exit 3 ---
+
+### TestCheckFailOnUpdateWinsOverIncompleteExits
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckFailOnUpdateWinsOverIncompleteExits
+$ stackmon check --fail-on-update --fail-on-incomplete
+--- stdout ---
+note: docker socket present but container listing failed: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}; running-container state was not verified
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor); running-state check failed
+--- stderr ---
+warning: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 2 ---
+
+### TestCheckFailOnUpdateWinsOverIncompleteExits
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+note: docker socket present but container listing failed: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}; running-container state was not verified
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor); running-state check failed
+--- stderr ---
+warning: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+error: incomplete checks
+--- exit 3 ---
+
+### TestCheckFailOnUpdateWinsOverIncompleteExits
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckFailOnUpdateWinsOverIncompleteExits
+$ stackmon check --fail-on-incomplete
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor)
+--- exit 0 ---
+
 ### TestCheckWarnsAboutAStackThatMoved
 $ stackmon enroll ROOT/srv/gone
 --- stdout ---

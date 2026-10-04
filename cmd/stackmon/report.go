@@ -39,14 +39,22 @@ func loadStackReport(cmd *cobra.Command, names []string) (report.Report, []compo
 	ctx := cmd.Context()
 	var parsed []compose.Stack
 	var failures []error
+	type stackError struct {
+		name string
+		err  error
+	}
+	var failedStacks []stackError
+	var serviceWarnings []stackError
 	for _, s := range stacks {
 		st, err := compose.Load(ctx, s)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", s.Name, err))
+			failedStacks = append(failedStacks, stackError{name: s.Name, err: err})
 			continue
 		}
 		for _, w := range st.Warnings {
 			failures = append(failures, fmt.Errorf("%s: %w", s.Name, w))
+			serviceWarnings = append(serviceWarnings, stackError{name: s.Name, err: w})
 		}
 		parsed = append(parsed, st)
 	}
@@ -59,19 +67,33 @@ func loadStackReport(cmd *cobra.Command, names []string) (report.Report, []compo
 	})
 
 	// Printed to stderr first so stdout stays a clean table for piping,
-	// regardless of caller (--json, detail view, or bump's diff).
-	printFailures(cmd, missing)
-	printFailures(cmd, failures)
-
-	return r, parsed, nil
-}
-
-// printFailures surfaces per-stack parse failures on stderr with a
-// "warning:" prefix, distinct from main.go's "error:" prefix on exit 1: a
-// parse failure is not a stackmon failure, so grepping stderr must be able
-// to tell the two apart without checking the exit code.
-func printFailures(cmd *cobra.Command, failures []error) {
+	// regardless of caller (--json, detail view, or bump's diff). The same
+	// problems are also carried in the report's Diagnostics: the stderr
+	// lines are for a person watching, the Diagnostics are for a consumer
+	// that cannot scrape stderr.
+	var diag report.Diagnostics
+	for _, m := range missing {
+		fmt.Fprintln(cmd.ErrOrStderr(), "warning:", m)
+		diag.MissingStacks = append(diag.MissingStacks, report.StackFailure{Stack: m.name, Reason: fmt.Sprintf("no longer exists at %s", m.path)})
+	}
 	for _, f := range failures {
 		fmt.Fprintln(cmd.ErrOrStderr(), "warning:", f)
 	}
+	for _, f := range failedStacks {
+		diag.ParseFailures = append(diag.ParseFailures, report.StackFailure{Stack: f.name, Reason: f.err.Error()})
+	}
+	for _, w := range serviceWarnings {
+		diag.ServiceWarnings = append(diag.ServiceWarnings, report.StackFailure{Stack: w.name, Reason: w.err.Error()})
+	}
+	if r.DockerError != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "warning:", r.DockerError)
+	}
+
+	diag.StacksChecked = len(parsed)
+	diag.StacksSkipped = len(missing) + len(failedStacks)
+	diag.ServicesChecked = len(r.Images)
+	diag.ServicesSkipped = len(serviceWarnings)
+	r.Diagnostics = diag
+
+	return r, parsed, nil
 }
