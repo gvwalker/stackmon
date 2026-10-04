@@ -1127,6 +1127,99 @@ $ stackmon discover
 error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
 --- exit 1 ---
 
+### TestCheckResolvesDotenvCommentsAndReferences
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckResolvesDotenvCommentsAndReferences
+$ stackmon check
+--- stdout ---
+STACK  SERVICE    VERSION  STATUS            DETAIL
+demo   commented  1.0.0    update-available  1.1.0 available (minor)
+demo   derived    1.0.0    update-available  1.1.0 available (minor)
+--- exit 0 ---
+
+### TestCheckResolvesDotenvCommentsAndReferences
+$ stackmon check --json
+  demo         commented  1.0.0      update-available    -> 1.1.0 (minor)
+  demo         derived    1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+
+### TestCheckDotenvFollowsProcessEnvironmentPrecedence
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckDotenvFollowsProcessEnvironmentPrecedence
+$ stackmon check
+--- stdout ---
+STACK  SERVICE     VERSION  STATUS            DETAIL
+demo   blank       9.9.9    not-running       no running container
+demo   derived     1.1.0    update-available  9.9.9 available (major)
+demo   overridden  1.1.0    update-available  9.9.9 available (major)
+--- exit 0 ---
+
+### TestCheckDotenvFollowsProcessEnvironmentPrecedence
+$ stackmon check --json
+  demo         blank      9.9.9      not-running        
+  demo         derived    1.1.0      update-available    -> 9.9.9 (major)
+  demo         overridden 1.1.0      update-available    -> 9.9.9 (major)
+--- docker available: true ---
+
+### TestCheckWithoutDotenvKeepsComposeDefaults
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckWithoutDotenvKeepsComposeDefaults
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   web      1.0.0    not-running  no running container
+--- exit 0 ---
+
+### TestCheckWithoutDotenvKeepsComposeDefaults
+$ stackmon check --json
+  demo         web        1.0.0      not-running        
+--- docker available: true ---
+
+### TestCheckRejectsUnusableDotenvAndKeepsOtherStacks
+$ stackmon enroll ROOT/srv/good
+--- stdout ---
+enrolled good (ROOT/srv/good/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRejectsUnusableDotenvAndKeepsOtherStacks
+$ stackmon enroll ROOT/srv/broken
+--- stdout ---
+enrolled broken (ROOT/srv/broken/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRejectsUnusableDotenvAndKeepsOtherStacks
+$ stackmon enroll ROOT/srv/directory
+--- stdout ---
+enrolled directory (ROOT/srv/directory/compose.yaml)
+--- exit 0 ---
+
+### TestCheckRejectsUnusableDotenvAndKeepsOtherStacks
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+good   web      1.0.0    update-available  1.1.0 available (minor)
+--- stderr ---
+warning: broken: compose: ROOT/srv/broken/.env: invalid .env syntax
+warning: directory: compose: reading ROOT/srv/directory/.env: read ROOT/srv/directory/.env: is a directory
+--- exit 0 ---
+
+### TestCheckRejectsUnusableDotenvAndKeepsOtherStacks
+$ stackmon check --json
+  good         web        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+
 ### TestCheckMatchesAProjectByPathNotByTheEnrolledName
 $ stackmon enroll ROOT/srv/cache --name edge-cache
 --- stdout ---
