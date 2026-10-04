@@ -5,7 +5,9 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
 	"gopkg.in/yaml.v3"
@@ -68,7 +71,9 @@ type Stack struct {
 func (s Stack) Path() string { return filepath.Join(s.Dir, s.File) }
 
 // Load parses the enrolled stack. Interpolation uses the process environment
-// plus the stack's .env file, exactly as Compose does.
+// plus the stack's .env file, exactly as Compose does: a .env that exists but
+// cannot be read or parsed fails the load, because silently interpolating
+// without it would report a reference the user never wrote.
 func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
 	name, dir, file := s.Name, s.Dir, s.File
 	path := filepath.Join(dir, file)
@@ -83,10 +88,18 @@ func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
 		return Stack{}, fmt.Errorf("compose: scanning %s: %w", path, err)
 	}
 
+	// Read before loading: the .env decides what the compose file means, so
+	// a .env stackmon could not parse has to fail the load rather than
+	// silently produce a declaration resolved against the wrong values.
+	env, err := environment(dir)
+	if err != nil {
+		return Stack{}, err
+	}
+
 	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir:  dir,
 		ConfigFiles: []types.ConfigFile{{Filename: path, Content: data}},
-		Environment: environment(dir),
+		Environment: env,
 	}, func(o *loader.Options) {
 		// compose-go rejects any non-normalised name when a project name is
 		// imperatively set. The inventory's display name is kept as
@@ -169,24 +182,71 @@ func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
 }
 
 // environment returns the process environment overlaid with the stack's .env
-// file, matching Compose's precedence where the process environment wins.
-func environment(dir string) types.Mapping {
-	env := types.Mapping{}
-
-	if data, err := os.ReadFile(filepath.Join(dir, ".env")); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			k, v, found := strings.Cut(line, "=")
-			if !found {
-				continue
-			}
-			env[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
-		}
+// file, matching Compose's precedence where the process environment wins. A
+// .env that cannot be read or parsed is an error rather than a silent absence:
+// a value stackmon failed to see would otherwise reach the user as a wrong
+// image reference with nothing pointing at the file that caused it.
+func environment(dir string) (types.Mapping, error) {
+	file, err := readDotenv(filepath.Join(dir, ".env"))
+	if err != nil {
+		return nil, err
 	}
 
+	env := types.Mapping{}
+	for k, v := range file {
+		env[k] = v
+	}
+	// The process environment is applied over the file rather than
+	// substituted into it: an explicitly empty exported variable is an
+	// override, which a substitution would treat as unset.
+	for k, v := range processEnv() {
+		env[k] = v
+	}
+	return env, nil
+}
+
+// readDotenv parses one .env file with compose-go's dotenv parser -- the same
+// parser Docker Compose itself uses -- so quoting, escapes, comments,
+// ${VAR} references and ${VAR:-default} behave here exactly as they would
+// there. Returns nil for a missing file, which is the normal case for a stack
+// whose variables live in the shell or in the compose file itself.
+func readDotenv(path string) (map[string]string, error) {
+	// Read the whole file first so a failure to read it -- a directory where
+	// a file belongs, a permission the user cannot grant stackmon -- is
+	// reported as a read failure rather than as malformed input, which the
+	// parser could not tell apart from a syntax error.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("compose: reading %s: %w", path, err)
+	}
+
+	// Values already exported are what Compose would expand a ${VAR}
+	// reference to, so they are handed to the parser as a lookup rather
+	// than applied afterwards: BASE=1.0.0 followed by TAG=${BASE} must see
+	// an exported BASE=2.0, the same way docker compose does.
+	proc := processEnv()
+	vars, err := dotenv.UnmarshalBytesWithLookup(data, func(k string) (string, bool) {
+		v, ok := proc[k]
+		return v, ok
+	})
+	if err != nil {
+		// The parser's messages quote the offending line and variable
+		// names verbatim, and a .env is where credentials live, so the
+		// failure is reported by path and category alone. The redacted
+		// secret never reaches stackmon's output.
+		return nil, fmt.Errorf("compose: %s: invalid .env syntax", path)
+	}
+	return vars, nil
+}
+
+// processEnv is the process environment as a map. Reading it is all the
+// resolution does: stackmon never exports a .env value back into its own
+// environment, so one stack's file cannot leak into another's interpolation.
+func processEnv() map[string]string {
+	env := map[string]string{}
 	for _, kv := range os.Environ() {
 		if k, v, found := strings.Cut(kv, "="); found {
 			env[k] = v
