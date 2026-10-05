@@ -778,7 +778,7 @@ func TestCheckCompactCarriesOnlyTheFieldsItPromised(t *testing.T) {
 	assertEq(t, "status", rep.image(t, "demo", "api").Status, "current")
 	assertEqSlice(t, "top-level keys", compactKeys(t, doc), []string{"docker_available", "images"})
 	assertEqSlice(t, "row keys", compactRowKeys(t, doc),
-		[]string{"candidate", "error", "identity_note", "service", "stack", "status", "version"})
+		[]string{"candidate", "error", "identity_note", "platform", "service", "stack", "status", "version"})
 }
 
 func TestCheckCompactSaysWhyARowIsUnknown(t *testing.T) {

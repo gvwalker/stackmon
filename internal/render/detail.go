@@ -27,6 +27,16 @@ func Detail(w io.Writer, i report.Image, rels []notes.Release) error {
 		return err
 	}
 
+	// The platform is stated before the version because the version came from
+	// one child's config blob: a digest-only pin read on arm64 and the same
+	// pin read on amd64 can name different versions, and which one this is
+	// is not visible anywhere else.
+	if i.Platform != "" {
+		if _, err := fmt.Fprintf(w, "  platform:  %s\n", i.Platform); err != nil {
+			return err
+		}
+	}
+
 	if i.Version != "" {
 		if _, err := fmt.Fprintf(w, "  version:   %s\n", i.Version); err != nil {
 			return err

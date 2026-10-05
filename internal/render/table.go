@@ -43,11 +43,24 @@ func Table(w io.Writer, r report.Report) error {
 	return tw.Flush()
 }
 
-// detailCell is the one-line explanation shown beside a status.
+// detailCell is the one-line explanation shown beside a status. A service is
+// not one container, so how many of its replicas agree, and against which
+// digest, is the fact behind most verdicts; which child of a multi-platform
+// image the row was read at is the fact behind the rest.
 func detailCell(i report.Image) string {
-	// A service is not one container, so how many of its replicas agree, and
-	// against which digest, is the fact behind most verdicts.
-	note := replicaNote(i.ReplicaComparison)
+	// The platform rides in DETAIL rather than getting a column of its own.
+	// A column would say "linux/amd64" on every row of every run to say
+	// something about the rows that asked for something else, which is a
+	// poor trade for the summary table -- and a reader who does want it on
+	// every row has --json, --compact, and show.
+	var notes []string
+	if n := platformNote(i); n != "" {
+		notes = append(notes, n)
+	}
+	if n := replicaNote(i.ReplicaComparison); n != "" {
+		notes = append(notes, n)
+	}
+	note := strings.Join(notes, "; ")
 
 	var cell string
 	switch i.Status {
@@ -56,8 +69,7 @@ func detailCell(i report.Image) string {
 		// a project identity that could not be established, a replica with
 		// no digest to judge, and a daemon probe that failed. Any of them
 		// blocks "current" just as much as the registry returning a 500.
-		cell = firstNonEmpty(i.Err, i.RunningError, i.IdentityNote, note)
-		return cell
+		return firstNonEmpty(i.Err, i.RunningError, i.IdentityNote, note)
 	case report.StatusUpdateAvailable:
 		if i.KindName != "" {
 			cell = fmt.Sprintf("%s available (%s)", i.Candidate, i.KindName)
@@ -75,12 +87,12 @@ func detailCell(i report.Image) string {
 	case report.StatusCurrent:
 		// All the replicas agreed, which is only worth saying when there was
 		// more than one of them.
-		if len(i.Replicas) < 2 {
-			return ""
+		if len(i.Replicas) > 1 {
+			return note
 		}
-		return note
+		return platformNote(i)
 	default:
-		return ""
+		return note
 	}
 
 	if note != "" {
@@ -100,6 +112,15 @@ func detailCell(i report.Image) string {
 		}
 	}
 	return cell
+}
+
+// platformNote names the platform a row's metadata was read at, and says
+// nothing when it is the one every service without a `platform:` gets.
+func platformNote(i report.Image) string {
+	if i.Platform == "" || i.Platform == report.DefaultPlatform() {
+		return ""
+	}
+	return "platform " + i.Platform
 }
 
 func firstNonEmpty(values ...string) string {

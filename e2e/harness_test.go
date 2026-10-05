@@ -584,6 +584,7 @@ type row struct {
 	Replicas         []replicaView
 	ReplicaCount     replicaView `json:"replica_comparison"`
 	DockerChecked    bool        `json:"docker_checked"`
+	Platform         string      `json:"platform"`
 	Version          string
 	Candidate        string
 	CandidateDigest  string   `json:"candidate_digest"`
@@ -910,27 +911,40 @@ func (e *env) push(repo, tag string, img image) string {
 	return h.String()
 }
 
+// archImage is one child of a multi-platform index: the platform it is
+// published for, and the labels its config blob carries. Distinct labels per
+// child are how a scenario proves which child's metadata stackmon read.
+type archImage struct {
+	Platform string
+	Version  string
+	Revision string
+}
+
 // pushIndex publishes a multi-platform index under ref and returns the index
 // digest. stackmon must report that digest, not the one platform child's,
-// or every digest-pinned multi-arch image looks permanently drifted.
-func (e *env) pushIndex(repo, tag string) string {
+// or every digest-pinned multi-arch image looks permanently drifted. With no
+// children it publishes the usual amd64/arm64 pair.
+func (e *env) pushIndex(repo, tag string, children ...archImage) string {
 	e.t.Helper()
-	amd64, err := mutate.ConfigFile(empty.Image, configWithLabels(map[string]string{
-		"org.opencontainers.image.version": tag,
-	}, "amd64"))
-	if err != nil {
-		e.t.Fatal(err)
+	if len(children) == 0 {
+		children = []archImage{{Platform: "linux/amd64", Version: tag}, {Platform: "linux/arm64", Version: tag}}
 	}
-	arm64, err := mutate.ConfigFile(empty.Image, configWithLabels(map[string]string{
-		"org.opencontainers.image.version": tag,
-	}, "arm64"))
-	if err != nil {
-		e.t.Fatal(err)
+	var idx v1.ImageIndex = empty.Index
+	for _, c := range children {
+		labels := map[string]string{"org.opencontainers.image.version": c.Version}
+		if c.Revision != "" {
+			labels["org.opencontainers.image.revision"] = c.Revision
+		}
+		img, err := mutate.ConfigFile(empty.Image, configWithLabels(labels, c.Platform))
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		platform, err := v1.ParsePlatform(c.Platform)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		idx = mutate.AppendManifests(idx, mutate.IndexAddendum{Add: img, Descriptor: v1.Descriptor{Platform: platform}})
 	}
-	idx := mutate.AppendManifests(empty.Index,
-		mutate.IndexAddendum{Add: amd64, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: "amd64"}}},
-		mutate.IndexAddendum{Add: arm64, Descriptor: v1.Descriptor{Platform: &v1.Platform{OS: "linux", Architecture: "arm64"}}},
-	)
 	h, err := idx.Digest()
 	if err != nil {
 		e.t.Fatal(err)

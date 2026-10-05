@@ -52,6 +52,10 @@ _Avoid_: Service (reserve for the Compose definition).
 A parsed image reference (repo, tag, digest) and its Shape (tag-only, tag+digest, or digest-only). Purely syntactic — carries no judgment about whether an update exists.
 _Avoid_: Image reference string, pin (reserve "pin" for the literal text `bump` rewrites in the compose file).
 
+**Platform**:
+The target a Service runs on, as Compose's `platform:` declares it, or the default when it declares none. It selects which child of a multi-platform image supplies a row's metadata; it never selects the digest, which stays the portable one the reference names. A Service that declares a Platform the image does not publish is an unknown row naming both sides, never a fallback to the default.
+_Avoid_: Architecture (a Platform is an os/arch pair, not the arch alone), Variant (compose's spelling of the field is `platform`), Default platform (a claim about the stack's absence of a declaration, not a fact about the host).
+
 **Declared** / **Running** / **Registry** (state):
 The three states stackmon compares for one service: what the compose file says (Declared), what the Docker daemon is actually running (Running), and what the registry currently serves (Registry). Every Status is a relationship between a subset of these three.
 _Avoid_: Local vs remote, expected vs actual.
