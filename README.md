@@ -143,6 +143,7 @@ Checks every enrolled stack, or only the supplied stack names. Registry and Dock
       "stack": "demo",
       "service": "api",
       "status": "update-available",
+      "platform": "linux/amd64",
       "version": "1.0.0",
       "candidate": "1.2.0",
       "error": "",
@@ -152,7 +153,7 @@ Checks every enrolled stack, or only the supplied stack names. Registry and Dock
 }
 ```
 
-`docker_available` is top-level because it qualifies every row: when the socket is down, a row is missing the running-container signal rather than reporting that nothing runs. `candidate` is what supersedes `version`, so `update-available` names the action; it is empty when nothing does. `error`, `identity_note`, and `running_error` are the three reasons a row can be `unknown` — a probe that failed, a Compose project that could not be resolved, and a Docker running-state check that failed — and each is empty unless it is the reason. `running_error` can also qualify an independent finding: a row can be `update-available` while its running state went unverified.
+`docker_available` is top-level because it qualifies every row: when the socket is down, a row is missing the running-container signal rather than reporting that nothing runs. `platform` is the platform the row's metadata was read at — the `platform:` Compose declares for the service, or `linux/amd64` when it declares none. It is there because a multi-platform image's version and revision labels come from one child's config blob, and the same tag pinned on two platforms can name two different versions. Digests stay portable: a digest-pinned multi-platform reference is always compared against the index digest, never a single platform's manifest. `candidate` is what supersedes `version`, so `update-available` names the action; it is empty when nothing does. `error`, `identity_note`, and `running_error` are the three reasons a row can be `unknown` — a probe that failed, a Compose project that could not be resolved, and a Docker running-state check that failed — and each is empty unless it is the reason. `running_error` can also qualify an independent finding: a row can be `update-available` while its running state went unverified.
 
 `--fail-on-update` returns exit code `2` if an `update-available` result exists; `--drift-too` also treats `digest-drift` as an update condition. Both work with any output form. Use these options for scheduled checks:
 

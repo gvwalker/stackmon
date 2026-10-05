@@ -29,12 +29,17 @@ type Options struct {
 	Concurrency int
 }
 
-// probe is what one unique reference resolves to, shared by every service
-// that declares it.
+// probe is what one unique reference at one platform resolves to. A
+// reference is not one probe when two Services ask for it at different
+// platforms: their metadata comes from different children of the same index,
+// so a shared probe would answer both from the same one.
 type probe struct {
 	image registry.Image
 	tags  []string
 	err   error
+	// platform is the effective target the probe ran at, empty only when the
+	// declared platform could not be parsed and nothing was inspected.
+	platform string
 	// registryImage is a separate inspection of the bare tag (no digest)
 	// for a ShapeTagDigest reference: what the tag currently resolves to
 	// in the registry, as opposed to image, which describes the pinned
@@ -44,6 +49,40 @@ type probe struct {
 	// every other shape, where there is nothing further to check.
 	registryImage    registry.Image
 	hasRegistryImage bool
+}
+
+// target is one reference to inspect, at the platform Compose declares for it.
+type target struct {
+	ref      imageref.Ref
+	platform string
+}
+
+// key is the probe cache's identity. The declared platform is part of it, not
+// the resolved one: two Services that both end up on the default platform are
+// the same probe, and one that declares a platform the other does not is not.
+func (t target) key() string { return t.ref.Resolved + "|" + t.platform }
+
+func targetFor(svc compose.Service) target {
+	return target{ref: svc.Ref, platform: svc.Platform}
+}
+
+// DefaultPlatform names the platform a row is inspected at when its service
+// declares none. A renderer needs it to stay quiet about the common case
+// without carrying a second copy of the value, which would drift.
+func DefaultPlatform() string { return registry.DefaultPlatform().String() }
+
+// candidate is one candidate tag to resolve a digest for, at the platform its
+// row was probed at.
+type candidate struct {
+	ref      string
+	platform string
+}
+
+// candidateKey identifies a candidate lookup. The platform is part of what is
+// being looked up, not a detail of the lookup: a candidate publishing only the
+// declared platform is unreadable under the default one.
+func candidateKey(ref imageref.Ref, candidate, platform string) string {
+	return ref.Registry + "/" + ref.Repository + ":" + candidate + "|" + platform
 }
 
 // Build probes every image in every stack and assembles the report. It never
@@ -73,23 +112,25 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 	}
 	running := local.Index(containers)
 
-	// Deduplicate: the same reference in two stacks is probed once.
-	unique := map[string]imageref.Ref{}
+	// Deduplicate: the same reference at the same platform is probed once.
+	unique := map[string]target{}
 	for _, st := range stacks {
 		for _, svc := range st.Services {
-			unique[svc.Ref.Resolved] = svc.Ref
+			t := targetFor(svc)
+			unique[t.key()] = t
 		}
 	}
 
 	// Constraints depend on config, which is per stack, so collect the set of
-	// constraints each reference needs before probing.
+	// constraints each target needs before probing.
 	constraints := map[string]policy.Constraint{}
 	for _, st := range stacks {
 		for _, svc := range st.Services {
+			t := targetFor(svc)
 			c := constraintFor(opts.Config, st.Name, svc.Ref)
 			// A trackable constraint anywhere means tags must be listed.
-			if c.Trackable || !constraints[svc.Ref.Resolved].Trackable {
-				constraints[svc.Ref.Resolved] = c
+			if c.Trackable || !constraints[t.key()].Trackable {
+				constraints[t.key()] = c
 			}
 		}
 	}
@@ -100,11 +141,20 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(opts.Concurrency)
 
-	for resolved, ref := range unique {
-		resolved, ref := resolved, ref
+	for key, t := range unique {
+		key, t := key, t
 		g.Go(func() error {
 			p := probe{}
-			p.image, p.err = opts.Registry.Inspect(gctx, resolved)
+			// Resolve the declared platform once and thread it through every
+			// inspection below: a tag's current state and a candidate's digest
+			// are as platform-specific as the declared reference's metadata is.
+			platform, err := registry.Target(t.platform)
+			if err != nil {
+				p.err = err
+			} else {
+				p.image, p.err = opts.Registry.Inspect(gctx, t.ref.Resolved, platform)
+			}
+			p.platform = platform.String()
 
 			// A tag+digest pin's single fetch above is pinned to the
 			// declared digest, so it can never see what the tag currently
@@ -113,9 +163,9 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 			// one. Other shapes have no separate tag to check this way:
 			// a tag-only ref's fetch above is already the current tag, and
 			// a digest-only ref names no tag at all.
-			if p.err == nil && ref.Shape == imageref.ShapeTagDigest {
-				tagRef := ref.Registry + "/" + ref.Repository + ":" + ref.Tag
-				img, err := opts.Registry.Inspect(gctx, tagRef)
+			if p.err == nil && t.ref.Shape == imageref.ShapeTagDigest {
+				tagRef := t.ref.Registry + "/" + t.ref.Repository + ":" + t.ref.Tag
+				img, err := opts.Registry.Inspect(gctx, tagRef, platform)
 				if err != nil {
 					// A failed tag-current inspect is a failed check, not a
 					// silent "current": without it, RegistryDigest falls
@@ -134,9 +184,9 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 			// through to a silent "current": a constraint that needed
 			// tags to evaluate never actually ran.
 			if p.err == nil {
-				needsTags := constraints[resolved].Trackable
+				needsTags := constraints[key].Trackable
 				if needsTags {
-					repo := ref.Registry + "/" + ref.Repository
+					repo := t.ref.Registry + "/" + t.ref.Repository
 					tags, err := opts.Registry.Tags(gctx, repo)
 					if err != nil {
 						p.err = err
@@ -147,7 +197,7 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 			}
 
 			mu.Lock()
-			probes[resolved] = p
+			probes[key] = p
 			mu.Unlock()
 			return nil // Per-image failures are data, not run failures.
 		})
@@ -160,7 +210,8 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 		// is given to every service in it.
 		identity := resolveIdentity(st, containers, r.DockerAvailable)
 		for _, svc := range st.Services {
-			r.Images = append(r.Images, assemble(st, svc, probes[svc.Ref.Resolved], running, identity, r.DockerAvailable, runningErr, opts.Config))
+			t := targetFor(svc)
+			r.Images = append(r.Images, assemble(st, svc, probes[t.key()], running, identity, r.DockerAvailable, runningErr, opts.Config))
 		}
 	}
 
@@ -169,13 +220,19 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 	// reference's stale one. RegistryDigest above describes only the
 	// declared reference and is never the candidate's digest. A failure
 	// here must not fail the run or affect Status: only the bump path is
-	// missing information.
-	candidateKeys := map[string]struct{}{}
+	// missing information. The digest written is the index digest whatever
+	// platform it was resolved at: a pin rewritten to a child's manifest
+	// would break every other platform the index publishes.
+	candidateKeys := map[string]candidate{}
 	for _, img := range r.Images {
 		if img.Candidate == "" {
 			continue
 		}
-		candidateKeys[img.Ref.Registry+"/"+img.Ref.Repository+":"+img.Candidate] = struct{}{}
+		c := candidate{
+			ref:      img.Ref.Registry + "/" + img.Ref.Repository + ":" + img.Candidate,
+			platform: img.Platform,
+		}
+		candidateKeys[candidateKey(img.Ref, img.Candidate, img.Platform)] = c
 	}
 
 	if len(candidateKeys) > 0 {
@@ -184,10 +241,19 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 
 		cg, cgctx := errgroup.WithContext(ctx)
 		cg.SetLimit(opts.Concurrency)
-		for key := range candidateKeys {
-			key := key
+		for key, c := range candidateKeys {
+			key, c := key, c
 			cg.Go(func() error {
-				if img, err := opts.Registry.Inspect(cgctx, key); err == nil {
+				// img.Platform is the canonical form of the platform the row
+				// was probed at, so resolving it again is a round trip that
+				// cannot fail in practice -- and a failure would cost nothing
+				// beyond the empty CandidateDigest an unreachable registry
+				// already leaves behind.
+				platform, err := registry.Target(c.platform)
+				if err != nil {
+					return nil
+				}
+				if img, err := opts.Registry.Inspect(cgctx, c.ref, platform); err == nil {
 					dmu.Lock()
 					digests[key] = img.Digest
 					dmu.Unlock()
@@ -201,7 +267,7 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 			if r.Images[i].Candidate == "" {
 				continue
 			}
-			key := r.Images[i].Ref.Registry + "/" + r.Images[i].Ref.Repository + ":" + r.Images[i].Candidate
+			key := candidateKey(r.Images[i].Ref, r.Images[i].Candidate, r.Images[i].Platform)
 			r.Images[i].CandidateDigest = digests[key]
 		}
 	}
@@ -319,6 +385,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 		Service:        svc.Name,
 		Ref:            svc.Ref,
 		DeclaredDigest: svc.Ref.Digest,
+		Platform:       p.platform,
 		Project:        id.project,
 		ProjectBound:   id.bound,
 		IdentityNote:   id.note,

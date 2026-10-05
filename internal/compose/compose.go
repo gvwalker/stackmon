@@ -44,6 +44,12 @@ func ValidProjectName(name string) error {
 type Service struct {
 	Name string
 	Ref  imageref.Ref
+	// Platform is the target platform Compose declares for the service,
+	// empty when it declares none. It selects which child of a
+	// multi-platform image carries the metadata stackmon reports, so it is
+	// recorded exactly as written and resolved once, against the registry's
+	// default, further out.
+	Platform string
 	// Offset and Length delimit Ref.Raw within the compose file.
 	Offset int
 	Length int
@@ -170,10 +176,11 @@ func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
 			continue
 		}
 		st.Services = append(st.Services, Service{
-			Name:   svcName,
-			Ref:    ref,
-			Offset: pos.offset + len(quote),
-			Length: length,
+			Name:     svcName,
+			Ref:      ref,
+			Platform: svc.Platform,
+			Offset:   pos.offset + len(quote),
+			Length:   length,
 		})
 	}
 

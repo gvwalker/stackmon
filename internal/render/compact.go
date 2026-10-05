@@ -31,6 +31,11 @@ type CompactImage struct {
 	Service string `json:"service"`
 	// Status is the verdict, and the reason the other fields are here.
 	Status report.Status `json:"status"`
+	// Platform is the platform the row's metadata was read at. It is here
+	// because Version comes from one child's config blob and a candidate
+	// digest from another's: a consumer acting on a version it cannot place
+	// on a platform is acting on half the answer.
+	Platform string `json:"platform"`
 	// Version is what is running now, empty when there is no version to name.
 	Version string `json:"version"`
 	// Candidate is the tag that supersedes Version, empty when none does.
@@ -68,6 +73,7 @@ func compact(r report.Report) Compact {
 			Service:      i.Service,
 			Status:       i.Status,
 			Version:      i.Version,
+			Platform:     i.Platform,
 			Candidate:    i.Candidate,
 			Err:          i.Err,
 			IdentityNote: i.IdentityNote,

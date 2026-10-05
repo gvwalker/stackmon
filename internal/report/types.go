@@ -68,6 +68,14 @@ type Image struct {
 	// DeclaredDigest is the digest written in the compose file, empty for a
 	// tag-only reference.
 	DeclaredDigest string `json:"declared_digest,omitempty"`
+	// Platform is the effective target this row's registry metadata was read
+	// at: the platform Compose declares for the service, or the default when
+	// it declares none. Every field below describing the image itself --
+	// Version, Revision, Created, RegistryCreated, RegistryRevision -- came
+	// from the child of a multi-platform index serving this platform, so a
+	// reader cannot check one without knowing which. Empty only when the
+	// declared platform could not be parsed and nothing was inspected.
+	Platform string `json:"platform,omitempty"`
 	// Project is the Docker Compose project this service's running state was
 	// read from, empty when none is running this stack's compose file.
 	Project string `json:"project,omitempty"`

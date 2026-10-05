@@ -863,7 +863,7 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 
 ### TestCheckComparesMultiArchImagesByTheirIndexDigest
 $ stackmon check --json
-  demo         api        v1         update-available    -> v1.1.0 (minor) [replicas 1/1 match, 0 differ, 0 unknown of 27ac21ba02d2]
+  demo         api        v1         update-available    -> v1.1.0 (minor) [replicas 1/1 match, 0 differ, 0 unknown of 8413f3b1028c]
 --- docker available: true ---
 
 ### TestCheckLooksUpASharedRunningImageOnce
@@ -990,6 +990,7 @@ $ stackmon check --compact
       "stack": "demo",
       "service": "api",
       "status": "update-available",
+      "platform": "linux/amd64",
       "version": "1.0.0",
       "candidate": "1.2.0",
       "error": "",
@@ -999,6 +1000,7 @@ $ stackmon check --compact
       "stack": "demo",
       "service": "ci",
       "status": "not-running",
+      "platform": "linux/amd64",
       "version": "1.0.0",
       "candidate": "",
       "error": "",
@@ -1024,6 +1026,7 @@ $ stackmon check --compact
       "stack": "demo",
       "service": "api",
       "status": "current",
+      "platform": "linux/amd64",
       "version": "1.0.0",
       "candidate": "",
       "error": "",
@@ -1049,6 +1052,7 @@ $ stackmon check --compact
       "stack": "demo",
       "service": "api",
       "status": "unknown",
+      "platform": "linux/amd64",
       "version": "",
       "candidate": "",
       "error": "registry: fetching REGISTRY/ghost:1.0.0: GET http://REGISTRY/v2/ghost/manifests/1.0.0: NAME_UNKNOWN: Unknown name",
@@ -1074,6 +1078,7 @@ $ stackmon check --compact
       "stack": "cache",
       "service": "api",
       "status": "unknown",
+      "platform": "linux/amd64",
       "version": "1.0.0",
       "candidate": "",
       "error": "",
@@ -1099,6 +1104,7 @@ $ stackmon check --compact
       "stack": "demo",
       "service": "api",
       "status": "current",
+      "platform": "linux/amd64",
       "version": "1.0.0",
       "candidate": "",
       "error": "",
@@ -1124,6 +1130,7 @@ $ stackmon check -c --fail-on-update
       "stack": "demo",
       "service": "api",
       "status": "update-available",
+      "platform": "linux/amd64",
       "version": "1.0.0",
       "candidate": "1.1.0",
       "error": "",
@@ -1436,6 +1443,168 @@ $ stackmon check --json
   good         web        1.0.0      update-available    -> 1.1.0 (minor)
 --- docker available: true ---
 
+### TestCheckReadsThePlatformAServiceDeclares
+$ stackmon enroll ROOT/srv/declared
+--- stdout ---
+enrolled declared (ROOT/srv/declared/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReadsThePlatformAServiceDeclares
+$ stackmon enroll ROOT/srv/implicit
+--- stdout ---
+enrolled implicit (ROOT/srv/implicit/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReadsThePlatformAServiceDeclares
+$ stackmon check --json
+  declared     api        v1         not-running        
+  implicit     api        v1         not-running        
+--- docker available: true ---
+### TestCheckReadsThePlatformAServiceDeclares
+platform linux/arm64 declared -> revision arm-rev; no platform declared -> revision amd-rev
+
+### TestCheckReadsAnArmOnlyImageForAnArmService
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReadsAnArmOnlyImageForAnArmService
+$ stackmon check --json
+  demo         api        v1         not-running        
+--- docker available: true ---
+### TestCheckReadsAnArmOnlyImageForAnArmService
+arm-only image read for an arm service: revision arm-rev
+
+### TestCheckReportsAnUnavailableTargetPlatform
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsAnUnavailableTargetPlatform
+$ stackmon check --json
+  demo         api        -          unknown            : registry: resolving image REGISTRY/amdonly:1.0.0: no image for platform linux/arm64: the index publishes linux/amd64
+--- docker available: true ---
+
+### TestCheckInspectsASinglePlatformImageWhateverIsDeclared
+$ stackmon enroll ROOT/srv/declared
+--- stdout ---
+enrolled declared (ROOT/srv/declared/compose.yaml)
+--- exit 0 ---
+
+### TestCheckInspectsASinglePlatformImageWhateverIsDeclared
+$ stackmon check --json
+  declared     api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestCheckProbesOneReferenceOncePerPlatform
+$ stackmon enroll ROOT/srv/amd
+--- stdout ---
+enrolled amd (ROOT/srv/amd/compose.yaml)
+--- exit 0 ---
+
+### TestCheckProbesOneReferenceOncePerPlatform
+$ stackmon enroll ROOT/srv/arm
+--- stdout ---
+enrolled arm (ROOT/srv/arm/compose.yaml)
+--- exit 0 ---
+
+### TestCheckProbesOneReferenceOncePerPlatform
+$ stackmon check --json
+  amd          api        v1         not-running        
+  arm          api        v1         not-running        
+--- docker available: true ---
+### TestCheckProbesOneReferenceOncePerPlatform
+index fetches for multi:v1 across both platforms: 2
+
+### TestBumpKeepsAMultiArchPinPortable
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpKeepsAMultiArchPinPortable
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/multi:v1@sha256:fa4a50524066b84cb3ab0949d4fef1e33b73dc90df55a0ca5bc669d4776c251d -> REGISTRY/multi:v1.1.0@sha256:08f7fb4c0b77c56ec5f7f166f542d965fe490e2d8e714434f024fb2d92a83e53
+--- exit 0 ---
+
+### TestEverySurfaceReportsTheEffectivePlatform
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestEverySurfaceReportsTheEffectivePlatform
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "not-running",
+      "platform": "linux/arm64",
+      "version": "v1",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestEverySurfaceReportsTheEffectivePlatform
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   api      v1       not-running  no running container; platform linux/arm64
+--- exit 0 ---
+
+### TestEverySurfaceReportsTheEffectivePlatform
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/multi:v1
+  status:    not-running
+  platform:  linux/arm64
+  version:   v1
+
+--- exit 0 ---
+
+### TestTheTableStaysQuietAboutTheDefaultPlatform
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestTheTableStaysQuietAboutTheDefaultPlatform
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor)
+--- exit 0 ---
+
+### TestCheckReportsAPlatformItCannotParse
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsAPlatformItCannotParse
+$ stackmon check --json
+  demo         api        -          unknown            : registry: parsing platform "linux/arm64/v8/extra": too many slashes in platform spec: linux/arm64/v8/extra
+--- docker available: true ---
+
+### TestCheckReportsAPlatformItCannotParse
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      -        unknown  registry: parsing platform "linux/arm64/v8/extra": too many slashes in platform spec: linux/arm64/v8/extra
+--- exit 0 ---
+
 ### TestCheckMatchesAProjectByPathNotByTheEnrolledName
 $ stackmon enroll ROOT/srv/cache --name edge-cache
 --- stdout ---
@@ -1522,6 +1691,7 @@ $ stackmon show cache
 cache / api
   reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
   status:    unknown
+  platform:  linux/amd64
   version:   1.0.0
   note:      ambiguous: one and two all run ROOT/srv/cache/compose.yaml; bind the one meant with "stackmon inventory set-project cache <project>"
 
@@ -1794,6 +1964,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
   status:    unknown
+  platform:  linux/amd64
   version:   1.0.0
   project:   demo (matched from its compose file)
 
@@ -1896,6 +2067,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/app:1.0.0@sha256:4a4c4088da48ddab3ce62e5c3c964d3ccee6b4a339b41c3eca94816ab97e56c7
   status:    digest-drift
+  platform:  linux/amd64
   version:   1.0.0
 
   digest change
@@ -1918,6 +2090,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/app:1.0.0@sha256:4a4c4088da48ddab3ce62e5c3c964d3ccee6b4a339b41c3eca94816ab97e56c7
   status:    digest-drift
+  platform:  linux/amd64
   version:   1.0.0
 
   digest change
@@ -1940,6 +2113,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/app:1.0.0@sha256:6522022e5b7a95ee0a94d1dcdf298bcb96f919f62127997a0b4b24b289dc7040
   status:    digest-drift
+  platform:  linux/amd64
   version:   1.0.0
 
   digest change
@@ -1962,6 +2136,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/app:1.0.0
   status:    update-available
+  platform:  linux/amd64
   version:   1.0.0
   available: 2.0.0 (major)
 
@@ -1982,6 +2157,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/acme:1.1.0
   status:    update-available
+  platform:  linux/amd64
   version:   1.1.0
   available: 1.3.0 (minor)
 
@@ -2007,6 +2183,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/acme:1.0.0
   status:    update-available
+  platform:  linux/amd64
   version:   1.0.0
   available: 1.1.0 (minor)
 
@@ -2027,6 +2204,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/acme:1.0.0
   status:    update-available
+  platform:  linux/amd64
   version:   1.0.0
   available: 1.1.0 (minor)
 
@@ -2049,6 +2227,7 @@ $ stackmon show demo
 demo / api
   reference: REGISTRY/ghost:1.0.0
   status:    unknown
+  platform:  linux/amd64
   error:     registry: fetching REGISTRY/ghost:1.0.0: GET http://REGISTRY/v2/ghost/manifests/1.0.0: NAME_UNKNOWN: Unknown name
 
 --- exit 0 ---
