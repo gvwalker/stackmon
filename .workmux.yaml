@@ -1,0 +1,20 @@
+# workmux project configuration
+# For global settings, edit ~/.config/workmux/config.yaml
+# Full option reference: workmux config reference
+
+# Worktrees live in .worktrees/, which is already gitignored, so an agent
+# worktree never shows up as untracked. Default would be a sibling
+# ../stackmon__worktrees/ outside the repo.
+worktree_dir: .worktrees
+
+# Always branch a new worktree from main rather than from whatever is checked
+# out. See docs/agents/workflow.md — a stale base is the first way a PR goes
+# wrong.
+base_branch: main
+
+# This repo merges on GitHub via squash, never locally. Keeping the worktree by
+# default means `workmux merge` is the only thing that needs --keep, and it
+# still should not be used: close the PR first, then `workmux rm`.
+merge_keep: true
+
+confirm_unmerged_removal: false
