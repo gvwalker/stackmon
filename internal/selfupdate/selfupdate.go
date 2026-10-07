@@ -4,10 +4,9 @@
 package selfupdate
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +28,25 @@ type Release struct {
 	Tag  string
 	Body string
 	URL  string
+}
+
+// asset is one downloadable file on a release.
+type asset struct {
+	Name string `json:"name"`
+	URL  string `json:"browser_download_url"`
+	// Digest is "sha256:<hex>" for the asset's content: the same hash the
+	// release page shows, computed and served by GitHub. go-github's
+	// ReleaseAsset has no field for it at any published version, so a
+	// release is read as it arrives rather than through that type.
+	Digest string `json:"digest"`
+}
+
+// release is the part of a GitHub release stackmon reads.
+type release struct {
+	Tag     string  `json:"tag_name"`
+	Body    string  `json:"body"`
+	HTMLURL string  `json:"html_url"`
+	Assets  []asset `json:"assets"`
 }
 
 // Client checks for and installs stackmon releases.
@@ -81,20 +99,35 @@ func (c *Client) ByTag(ctx context.Context, tag string) (Release, error) {
 	if err != nil {
 		return Release{}, err
 	}
-	return Release{Tag: r.GetTagName(), Body: r.GetBody(), URL: r.GetHTMLURL()}, nil
+	return Release{Tag: r.Tag, Body: r.Body, URL: r.HTMLURL}, nil
 }
 
-func (c *Client) release(ctx context.Context, tag string) (*github.RepositoryRelease, error) {
+// release reads one release. It goes through go-github's own authenticated,
+// rate-limit-checked request plumbing and then decodes the body itself, so
+// the token, the STACKMON_GITHUB_API base URL, and the secondary-rate-limit
+// handling all behave exactly as they do for the typed calls.
+func (c *Client) release(ctx context.Context, tag string) (release, error) {
 	owner, name, _ := strings.Cut(Repo, "/")
-	r, _, err := c.gh.Repositories.GetReleaseByTag(ctx, owner, name, tag)
+	req, err := c.gh.NewRequest(http.MethodGet,
+		fmt.Sprintf("repos/%s/%s/releases/tags/%s", owner, name, tag), nil)
 	if err != nil {
-		return nil, fmt.Errorf("selfupdate: fetching release %s: %w", tag, err)
+		return release{}, fmt.Errorf("selfupdate: fetching release %s: %w", tag, err)
 	}
-	return r, nil
+	resp, err := c.gh.BareDo(ctx, req)
+	if err != nil {
+		return release{}, fmt.Errorf("selfupdate: fetching release %s: %w", tag, err)
+	}
+	defer resp.Body.Close()
+
+	var rel release
+	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		return release{}, fmt.Errorf("selfupdate: reading release %s: %w", tag, err)
+	}
+	return rel, nil
 }
 
-// Install downloads the release asset for the running OS/arch, verifies its
-// checksum against the release's checksums.txt, and replaces the running
+// Install downloads the release asset for the running OS/arch, verifies it
+// against the digest GitHub reports for that asset, and replaces the running
 // binary in place.
 func (c *Client) Install(ctx context.Context, tag string) error {
 	r, err := c.release(ctx, tag)
@@ -103,37 +136,28 @@ func (c *Client) Install(ctx context.Context, tag string) error {
 	}
 
 	assetName := fmt.Sprintf("stackmon-%s-%s", runtime.GOOS, runtime.GOARCH)
-	var assetURL, sumsURL string
+	var assetURL, digest string
 	for _, a := range r.Assets {
-		switch a.GetName() {
-		case assetName:
-			assetURL = a.GetBrowserDownloadURL()
-		case "checksums.txt":
-			sumsURL = a.GetBrowserDownloadURL()
+		if a.Name == assetName {
+			assetURL, digest = a.URL, a.Digest
 		}
 	}
 	if assetURL == "" {
 		return fmt.Errorf("selfupdate: release %s has no asset for %s/%s", tag, runtime.GOOS, runtime.GOARCH)
 	}
-	if sumsURL == "" {
-		return fmt.Errorf("selfupdate: release %s has no checksums.txt", tag)
-	}
-
-	sums, err := c.fetch(ctx, sumsURL)
-	if err != nil {
-		return fmt.Errorf("selfupdate: downloading checksums: %w", err)
-	}
-	want, ok := parseChecksums(sums)[assetName]
-	if !ok {
-		return fmt.Errorf("selfupdate: checksums.txt has no entry for %s", assetName)
+	// No digest means nothing to verify against. Refusing is the whole
+	// point: installing the download because the check was impossible is
+	// exactly the outcome the check exists to prevent.
+	want, ok := strings.CutPrefix(digest, "sha256:")
+	if !ok || want == "" {
+		return fmt.Errorf("selfupdate: release %s reports no sha256 digest for %s, so it cannot be verified", tag, assetName)
 	}
 
 	data, err := c.fetch(ctx, assetURL)
 	if err != nil {
 		return fmt.Errorf("selfupdate: downloading %s: %w", assetName, err)
 	}
-	got := sha256.Sum256(data)
-	if hex.EncodeToString(got[:]) != want {
+	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != want {
 		return fmt.Errorf("selfupdate: checksum mismatch for %s", assetName)
 	}
 
@@ -161,20 +185,6 @@ func (c *Client) fetch(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("%s: %s", url, resp.Status)
 	}
 	return io.ReadAll(resp.Body)
-}
-
-// parseChecksums reads a "sha256sum <path>" checksums.txt into name -> sum.
-func parseChecksums(text []byte) map[string]string {
-	out := map[string]string{}
-	s := bufio.NewScanner(strings.NewReader(string(text)))
-	for s.Scan() {
-		fields := strings.Fields(s.Text())
-		if len(fields) != 2 {
-			continue
-		}
-		out[filepath.Base(fields[1])] = fields[0]
-	}
-	return out
 }
 
 // install atomically replaces the file at path with data. Writing to a

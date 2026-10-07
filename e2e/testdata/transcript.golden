@@ -2291,3 +2291,12 @@ updating stackmon dev -> v9.9.9...
 --- stderr ---
 error: selfupdate: release v9.9.9 has no asset for linux/amd64
 --- exit 1 ---
+
+### TestUpdateRefusesAnAssetGitHubReportsNoDigestFor
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: release v9.9.9 reports no sha256 digest for stackmon-linux-amd64, so it cannot be verified
+--- exit 1 ---

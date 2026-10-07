@@ -8,18 +8,19 @@ import (
 )
 
 // publishStackmonRelease puts a stackmon release on the fake GitHub, with an
-// asset for this platform and a checksums.txt that matches -- unless the
-// scenario says otherwise.
-func (e *env) publishStackmonRelease(tag string, payload []byte, sumsBody string) {
+// asset for this platform whose reported digest is that payload's real sha256.
+// Pass digest to declare a different one, as a substituted or corrupted
+// download would.
+func (e *env) publishStackmonRelease(tag string, payload []byte, digest string) {
 	e.t.Helper()
-	asset := e.gh.file("/dl/"+assetName(), payload)
-	sums := e.gh.file("/dl/checksums.txt", []byte(sumsBody))
+	if digest == "" {
+		digest = "sha256:" + sum(payload)
+	}
 	e.gh.publish("gvwalker/stackmon", ghRelease{
 		Tag:  tag,
 		Body: "Release " + tag,
 		Assets: []ghAsset{
-			{Name: assetName(), URL: asset},
-			{Name: "checksums.txt", URL: sums},
+			{Name: assetName(), URL: e.gh.file("/dl/"+assetName(), payload), Digest: digest},
 		},
 	})
 }
@@ -70,7 +71,7 @@ func TestWhatsNewOnADevBuildSaysItCannotCompare(t *testing.T) {
 func TestUpdateInstallsAVerifiedRelease(t *testing.T) {
 	e := newEnv(t)
 	payload := []byte("#!/bin/sh\necho installed from the release\n")
-	e.publishStackmonRelease("v9.9.9", payload, sum(payload)+"  "+assetName()+"\n")
+	e.publishStackmonRelease("v9.9.9", payload, "")
 	bin := e.installCopy()
 
 	got := e.runBinary(bin, "update")
@@ -88,8 +89,8 @@ func TestUpdateInstallsAVerifiedRelease(t *testing.T) {
 // corrupted or substituted asset is worse than no update.
 func TestUpdateRefusesAnUnverifiedRelease(t *testing.T) {
 	e := newEnv(t)
-	payload := []byte("payload that does not match the published checksum")
-	e.publishStackmonRelease("v9.9.9", payload, strings.Repeat("0", 64)+"  "+assetName()+"\n")
+	payload := []byte("payload that does not match the digest GitHub reports")
+	e.publishStackmonRelease("v9.9.9", payload, "sha256:"+strings.Repeat("0", 64))
 	bin := e.installCopy()
 	before := e.read(bin)
 
@@ -103,14 +104,33 @@ func TestUpdateRefusesAnUnverifiedRelease(t *testing.T) {
 // not a silent no-op.
 func TestUpdateReportsAMissingAssetForThisPlatform(t *testing.T) {
 	e := newEnv(t)
-	sums := e.gh.file("/dl/checksums.txt", []byte(""))
 	e.gh.publish("gvwalker/stackmon", ghRelease{
 		Tag:    "v9.9.9",
-		Assets: []ghAsset{{Name: "stackmon-some-other-os", URL: sums}},
+		Assets: []ghAsset{{Name: "stackmon-some-other-os", URL: e.gh.file("/dl/other", []byte(""))}},
 	})
 	bin := e.installCopy()
 
 	got := e.runBinary(bin, "update")
 	assertCode(t, "update", got.code, 1, got)
 	assertContains(t, "stderr", got.stderr, "error:", "no asset for")
+}
+
+// A release that does not say what its asset should hash to cannot be
+// verified, and an unverifiable download must never be installed: skipping
+// the check is the one failure mode the check exists to prevent.
+func TestUpdateRefusesAnAssetGitHubReportsNoDigestFor(t *testing.T) {
+	e := newEnv(t)
+	payload := []byte("a perfectly good binary")
+	// An API that predates asset digests reports the asset and no digest.
+	e.gh.publish("gvwalker/stackmon", ghRelease{
+		Tag:    "v9.9.9",
+		Assets: []ghAsset{{Name: assetName(), URL: e.gh.file("/dl/"+assetName(), payload)}},
+	})
+	bin := e.installCopy()
+	before := e.read(bin)
+
+	got := e.runBinary(bin, "update")
+	assertCode(t, "update", got.code, 1, got)
+	assertContains(t, "stderr", got.stderr, "error:", "no sha256 digest")
+	assertEq(t, "binary is untouched", e.read(bin), string(before))
 }
