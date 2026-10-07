@@ -105,8 +105,7 @@ func Scan(roots []string, inv inventory.Inventory) ([]Candidate, error) {
 
 // DockerCandidates returns stacks represented by running Compose containers.
 // A candidate is emitted only when Compose labels identify an absolute working
-// directory, at least one config file, and a compose file currently exists
-// there.
+// directory and a compose file currently exists there.
 func DockerCandidates(containers []local.Container, inv inventory.Inventory) []Candidate {
 	enrolled := enrolledDirs(inv)
 	seenProjects := map[string]bool{}
@@ -118,12 +117,15 @@ func DockerCandidates(containers []local.Container, inv inventory.Inventory) []C
 		if c.Project == "" || c.OneOff || seenProjects[c.Project] {
 			continue
 		}
-		if c.ProjectWorkingDir == "" || !filepath.IsAbs(c.ProjectWorkingDir) || strings.TrimSpace(c.ProjectConfigFiles) == "" {
+		if c.ProjectWorkingDir == "" || !filepath.IsAbs(c.ProjectWorkingDir) {
 			continue
 		}
 		seenProjects[c.Project] = true
 		dir := filepath.Clean(c.ProjectWorkingDir)
-		file, ok := FindComposeFile(dir)
+		file, ok := recordedComposeFile(c.ProjectConfigFiles, dir)
+		if !ok {
+			file, ok = FindComposeFile(dir)
+		}
 		if !ok {
 			continue
 		}
@@ -137,6 +139,30 @@ func DockerCandidates(containers []local.Container, inv inventory.Inventory) []C
 	}
 	sortCandidates(out)
 	return out
+}
+
+// recordedComposeFile returns the first config file Compose recorded for the
+// project, relative to dir. The label names the file the project is actually
+// running from, which the filename-precedence scan cannot know about. A label
+// naming a file that no longer exists is unusable, and the caller falls back.
+func recordedComposeFile(label, dir string) (string, bool) {
+	for _, f := range strings.Split(label, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(dir, f)
+		}
+		if st, err := os.Stat(f); err == nil && !st.IsDir() {
+			rel, err := filepath.Rel(dir, f)
+			if err != nil {
+				return "", false
+			}
+			return rel, true
+		}
+	}
+	return "", false
 }
 
 // Merge combines candidate sources, keeping one candidate per directory.
