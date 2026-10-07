@@ -12,6 +12,10 @@ Default canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+### Commits and pull requests
+
+Squash merge only; the PR title becomes the commit subject that the release script classifies. See `docs/agents/commits-and-prs.md`.
+
 ### Testing
 
 - Never write unit tests after you write code.
