@@ -978,7 +978,7 @@ func shortHash(s string) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-// sum returns the hex sha256 of b, in the form checksums.txt uses.
+// sum returns the hex sha256 of b, in the form an asset digest reports it.
 func sum(b []byte) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
@@ -1160,6 +1160,9 @@ func (d *fakeDocker) reset() {
 type ghAsset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
+	// Digest is the "sha256:<hex>" GitHub reports for the asset's content,
+	// and the only thing stackmon verifies a download against.
+	Digest string `json:"digest"`
 }
 
 type ghRelease struct {
@@ -1179,8 +1182,8 @@ type fakeGitHub struct {
 	// releases maps "owner/name" to that repository's releases, newest
 	// first, the order GitHub returns them in.
 	releases map[string][]ghRelease
-	// files serves anything else the release points at (assets,
-	// checksums.txt) by path.
+	// files serves anything else the release points at (asset downloads)
+	// by path.
 	files map[string][]byte
 }
 

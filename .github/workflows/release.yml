@@ -144,6 +144,15 @@ jobs:
               -o "dist/stackmon-$target" ./cmd/stackmon
           done
 
+      # stackmon no longer reads this file: it verifies a download against
+      # the sha256 digest GitHub publishes for each release asset, which is
+      # the same hash the release page shows. This stays because every
+      # stackmon built before that change looks for checksums.txt and
+      # refuses to install a release without it -- a break we cannot fix
+      # from the new side, since a released binary is what does the
+      # updating. Delete this only when no such binary is left in the wild
+      # and none is likely to come back, which there is no way to observe.
+      # It costs four lines of YAML and 262 bytes beside 30MB of binaries.
       - name: Generate checksums
         run: |
           cd dist
