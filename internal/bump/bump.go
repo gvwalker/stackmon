@@ -193,7 +193,30 @@ func ApplyAll(changes []Change) error {
 	return nil
 }
 
+// CheckPath refuses a final-component symlink, including one whose target is
+// missing. Callers must check again when previewing or applying a change:
+// registry probes can leave time for the directory entry to be replaced.
+func CheckPath(path string) error {
+	_, err := fileInfo(path)
+	return err
+}
+
+func fileInfo(path string) (os.FileInfo, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("bump: stat %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("bump: refusing symlink-backed compose file %s; use a regular compose file", path)
+	}
+	return info, nil
+}
+
 func applyFile(path string, changes []Change) error {
+	info, err := fileInfo(path)
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("bump: reading %s: %w", path, err)
@@ -212,11 +235,6 @@ func applyFile(path string, changes []Change) error {
 		if changes[i-1].Offset < changes[i].Offset+changes[i].Length {
 			return fmt.Errorf("bump: %s has overlapping planned changes; re-run check", path)
 		}
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("bump: stat %s: %w", path, err)
 	}
 
 	out := append([]byte(nil), data...)
@@ -254,6 +272,9 @@ func applyFile(path string, changes []Change) error {
 
 // Diff renders the change as a minimal unified diff of the affected line.
 func Diff(c Change) (string, error) {
+	if err := CheckPath(c.Path); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(c.Path)
 	if err != nil {
 		return "", fmt.Errorf("bump: reading %s: %w", c.Path, err)
