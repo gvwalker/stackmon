@@ -13,17 +13,12 @@ for triage, review, and a quick `git log`.
 
 ```bash
 git checkout main && git pull --prune origin main   # root stays here
-workmux add fix/verify-downloads-against-asset-digest --name verify-downloads
+git worktree add .worktrees/verify-downloads -b fix/verify-downloads-against-asset-digest main
 ```
 
-`workmux` creates the branch, a worktree under `.worktrees/` (already
-gitignored), and a tmux window. Work inside it — `workmux path` prints the
-absolute path if you need it. `.workmux.yaml` pins `worktree_dir` and
-`base_branch: main` so a worktree never lands outside the repo and never
-branches off a stale or unrelated commit.
-
-Plain `git worktree add .worktrees/<name> -b <branch> main` is fine too if
-workmux is not installed; the rest of this file applies unchanged.
+`git worktree add` creates a branch and a checkout under `.worktrees/`
+(already gitignored). Work inside that directory. Passing `main` explicitly
+keeps new branches based on the intended local base branch.
 
 Branch name is `<type>/<slug-from-the-PR-title>`:
 
@@ -44,13 +39,13 @@ When issues are independent, run them in parallel worktrees — one window each,
 one agent each — and merge each as its own PR. Never stack them on one branch:
 
 ```bash
-workmux add fix/discover-config-file-label --name discover-label -b
-workmux add fix/check-reported-platform      --name check-platform -b
-workmux ls                                    # what is in flight
+git worktree add .worktrees/discover-label -b fix/discover-config-file-label main
+git worktree add .worktrees/check-platform -b fix/check-reported-platform main
+git worktree list
 ```
 
-The `/coordinator` skill drives this: spawn a worktree per issue, wait, review,
-merge one at a time. Its invariant matters — **every spawned worktree stays your
+Create a worktree per issue, wait, review, and merge one PR at a time.
+**Every created worktree stays your
 responsibility until its PR is merged or the worktree is explicitly removed.**
 
 Worktrees make parallel e2e safe: each has its own checkout (so its own
@@ -141,10 +136,11 @@ gh pr view 60 --json mergeable,mergeStateStatus,baseRefOid
 ```
 
 `UNSTABLE` or a stale `baseRefOid` means `main` moved. Rebase, not merge —
-`workmux rebase <name>` does it in the worktree and leaves you in it:
+run the rebase from inside the affected worktree:
 
 ```bash
-workmux rebase verify-downloads
+git fetch origin
+git rebase origin/main
 git push --force-with-lease
 ```
 
@@ -160,10 +156,9 @@ Do not force-push `main`, and never push to `main` directly.
 
 ## Merge and clean up
 
-Squash merge on GitHub, once checks are green. **Do not use `workmux merge`** —
-it merges the branch locally and would bypass the PR the release script needs to
-attribute the commit. Then verify the merge actually landed before declaring
-the work done:
+Squash merge on GitHub once checks are green, so the release script can
+attribute the commit to its PR. Then verify the merge actually landed before
+declaring the work done:
 
 ```bash
 gh pr view 62 --json state,mergedAt,mergeCommit
@@ -173,22 +168,23 @@ gh issue view 62 --json state   # closed by "Closes #NN"
 Only once the PR is merged and the issue closed, drop the worktree:
 
 ```bash
-workmux rm verify-downloads          # worktree + tmux window + local branch
+git worktree remove .worktrees/verify-downloads  # run from the root checkout
 git push origin --delete fix/verify-downloads-against-asset-digest
 git fetch --all --prune
 ```
 
-`workmux rm` refuses to delete a branch with unmerged commits — that is the
-guard you want, since the merge happens on GitHub and git cannot see it as an
-ancestor. Squash rewrites the SHA, so `git branch -d` would also refuse; that
-refusal is expected here, not a problem to work around.
+`git worktree remove` refuses to remove a dirty checkout. Review and preserve
+any remaining changes before cleanup. Squash merging rewrites commit SHAs, so
+`git branch -d` may refuse to delete the local branch. Verify the PR merge and
+branch contents before explicitly deleting that branch.
 
 The end state: the root checkout is still on `main`, `git status` is clean,
-`workmux ls` lists only `main`, and no remote branches are left behind.
+`git worktree list` shows only the root checkout, and no remote branches are
+left behind.
 
 ```bash
 git checkout main && git merge --ff-only origin/main
-git status --short && workmux ls && git branch -a
+git status --short && git worktree list && git branch -a
 ```
 
 ## Triaging before you build
