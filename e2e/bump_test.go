@@ -1,12 +1,116 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// A symlink is a shared declaration, not a file Bump may replace. Preview and
+// apply must refuse it alike, including a broken link or one installed while
+// registry probes are in flight. Record the link and target before and after
+// each command so the transcript proves the refusal left both untouched.
+func TestBumpRefusesSymlinkComposeFiles(t *testing.T) {
+	for _, kind := range []string{"relative", "absolute", "broken", "replaced-during-probe"} {
+		for _, dryRun := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/dry-run=%t", kind, dryRun), func(t *testing.T) {
+				e := newEnv(t)
+				e.push("app", "1.0.0", image{})
+				e.push("app", "1.0.1", image{})
+				body := fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "1.0.0"))
+				path := e.stack("demo", body)
+				target := filepath.Join(filepath.Dir(path), "canonical.yaml")
+				link := "canonical.yaml"
+				if kind == "absolute" {
+					link = target
+				}
+				installLink := func() {
+					t.Helper()
+					if err := os.Rename(path, target); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(link, path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if kind != "replaced-during-probe" {
+					installLink()
+				}
+				enrolled := e.enroll(filepath.Dir(path))
+				assertCode(t, "enroll", enrolled.code, 0, enrolled)
+				if kind == "broken" {
+					if err := os.Remove(target); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if kind == "relative" || kind == "absolute" {
+					checked := e.run("check")
+					assertCode(t, "check follows symlink", checked.code, 0, checked)
+					assertContains(t, "check", checked.stdout, "update-available")
+					shown := e.run("show", "demo")
+					assertCode(t, "show follows symlink", shown.code, 0, shown)
+					assertContains(t, "show", shown.stdout, "1.0.1")
+				}
+
+				args := []string{"bump", "demo"}
+				if dryRun {
+					args = append(args, "--dry-run")
+				}
+				var running *pending
+				var release func()
+				if kind == "replaced-during-probe" {
+					gate := e.hits.hold("/v2/app/manifests/")
+					running = e.start(args...)
+					gate.wait(t)
+					installLink()
+					release = gate.open
+				}
+
+				snapshot := func() string {
+					t.Helper()
+					info, err := os.Lstat(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					linkText, err := os.Readlink(path)
+					if err != nil && info.Mode()&os.ModeSymlink != 0 {
+						t.Fatal(err)
+					}
+					targetText := "<absent>\n"
+					if targetInfo, err := os.Stat(target); err == nil {
+						targetText = fmt.Sprintf("mode=%s\n%s", targetInfo.Mode(), e.normalize(e.read(target)))
+					} else if !errors.Is(err, os.ErrNotExist) {
+						t.Fatal(err)
+					}
+					entries, err := os.ReadDir(filepath.Dir(path))
+					if err != nil {
+						t.Fatal(err)
+					}
+					return fmt.Sprintf("compose.yaml: mode=%s link=%q\ncanonical.yaml: %sentries: %v\n",
+						info.Mode(), e.normalize(linkText), targetText, names(entries))
+				}
+				before := snapshot()
+				e.note("before Bump:\n%s", before)
+				var got result
+				if running != nil {
+					release()
+					got = running.wait(t)
+				} else {
+					got = e.run(args...)
+				}
+				assertCode(t, "bump refuses symlink", got.code, 1, got)
+				assertContains(t, "stderr", got.stderr, "symlink", "compose.yaml")
+				assertOmits(t, "stdout", got.stdout, "bumped", "--- ", "+++ ")
+				after := snapshot()
+				e.note("after Bump:\n%s", after)
+				assertEq(t, "link, target, and directory are unchanged", after, before)
+			})
+		}
+	}
+}
 
 // bump is the only command that writes to a live compose file, so every
 // scenario here ends by reading the file back: a rewrite that is not exactly

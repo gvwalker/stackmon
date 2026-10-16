@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -26,6 +28,18 @@ func newBumpCmd() *cobra.Command {
 		Short: "Rewrite a stack's image pins to the newest available",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check the enrolled entry before report loading follows symlinks
+			// or drops a broken link as a missing stack. Missing ordinary
+			// files retain the shared pipeline's warning behavior.
+			inv, _, err := loadInventory()
+			if err != nil {
+				return err
+			}
+			if st, ok := inv.Find(args[0]); ok {
+				if err := bump.CheckPath(st.Path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return err
+				}
+			}
 			r, parsed, err := loadStackReport(cmd, args[:1])
 			if err != nil {
 				return err

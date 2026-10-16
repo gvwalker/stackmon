@@ -1,4 +1,320 @@
 
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=true
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=true
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.0.1 available (patch)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=true
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.0.1 (patch)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=true
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=true
+$ stackmon bump demo --dry-run
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=true
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=false
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=false
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.0.1 available (patch)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=false
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.0.1 (patch)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=false
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=false
+$ stackmon bump demo
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/relative/dry-run=false
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=true
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=true
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.0.1 available (patch)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=true
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.0.1 (patch)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=true
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="ROOT/srv/demo/canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=true
+$ stackmon bump demo --dry-run
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=true
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="ROOT/srv/demo/canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=false
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=false
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.0.1 available (patch)
+--- exit 0 ---
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=false
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.0.1 (patch)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=false
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="ROOT/srv/demo/canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=false
+$ stackmon bump demo
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/absolute/dry-run=false
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="ROOT/srv/demo/canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=true
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=true
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: <absent>
+entries: [compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=true
+$ stackmon bump demo --dry-run
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=true
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: <absent>
+entries: [compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=false
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=false
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: <absent>
+entries: [compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=false
+$ stackmon bump demo
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/broken/dry-run=false
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: <absent>
+entries: [compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=true
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=true
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=true
+$ stackmon bump demo --dry-run
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=true
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=false
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=false
+before Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=false
+$ stackmon bump demo
+--- stderr ---
+error: bump: refusing symlink-backed compose file ROOT/srv/demo/compose.yaml; use a regular compose file
+--- exit 1 ---
+### TestBumpRefusesSymlinkComposeFiles/replaced-during-probe/dry-run=false
+after Bump:
+compose.yaml: mode=Lrwxrwxrwx link="canonical.yaml"
+canonical.yaml: mode=-rw-r--r--
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+entries: [canonical.yaml compose.yaml]
+
+
 ### TestBumpAdvancesTagsAndLeavesTheFileAlone
 $ stackmon enroll ROOT/srv/demo
 --- stdout ---
