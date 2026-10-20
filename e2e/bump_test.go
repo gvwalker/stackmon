@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A symlink is a shared declaration, not a file Bump may replace. Preview and
@@ -313,6 +314,67 @@ func TestBumpRefusesAFileChangedWhileItRuns(t *testing.T) {
 	assertEq(t, "compose file is untouched", e.read(path), edited)
 
 	// A refused run leaves nothing behind in the user's stack directory.
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "compose.yaml" {
+		t.Errorf("stack directory holds %v, want only compose.yaml", names(entries))
+	}
+}
+
+// The stale-file guard used to stop at validation. The read happens, the plan
+// is checked, and only later is a replacement renamed over the source: an edit
+// landing in that window was overwritten by a run that reported success.
+//
+// Two cooperating bumps are started here. The first is parked by a test hook
+// after it has read and validated the file, holding the transaction lock. The
+// second must wait for it instead of racing through the same window. While it
+// waits, a noncooperating edit lands, so the first must refuse rather than
+// rename its stale replacement, and the second -- whose plan was made against
+// the pre-edit file -- must refuse too. The competing edit survives both.
+func TestBumpSerialisesWritersAndRefusesAnEditAfterValidation(t *testing.T) {
+	e := newEnv(t)
+	declared := e.push("app", "1.0.0", image{})
+	e.push("app", "1.1.0", image{})
+	path := e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s@%s\n", e.ref("app", "1.0.0"), declared))
+	barrier := e.afterValidateBarrier()
+
+	first := e.startWith(barrier.env, "bump", "demo")
+	barrier.wait(t) // read, validated, lock held, not yet replaced
+
+	e.hits.reset()
+	second := e.start("bump", "demo")
+	e.waitFor(t, "the second bump to probe the registry", func() bool {
+		return e.hits.count("GET /v2/app/manifests/") > 0
+	})
+
+	// Give the second bump every chance to finish: if the lock does not cover
+	// the transaction it will already have replaced the file by now.
+	select {
+	case r := <-second.done:
+		second.done <- r
+		t.Errorf("the second bump finished while the first held the transaction lock: %+v", r)
+	case <-time.After(1500 * time.Millisecond):
+		e.note("the second bump was still waiting while the first held the transaction lock")
+	}
+
+	edited := strings.ReplaceAll(e.read(path), declared, "sha256:"+strings.Repeat("e", 64))
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	barrier.release(t)
+
+	firstResult := first.wait(t)
+	assertCode(t, "first bump", firstResult.code, 1, firstResult)
+	assertContains(t, "first stderr", firstResult.stderr, "changed while it was being rewritten", "re-run check")
+	assertEq(t, "compose file after the first bump", e.read(path), edited)
+
+	secondResult := second.wait(t)
+	assertCode(t, "second bump", secondResult.code, 1, secondResult)
+	assertContains(t, "second stderr", secondResult.stderr, "changed since it was checked", "re-run check")
+	assertEq(t, "compose file after the second bump", e.read(path), edited)
+
 	entries, err := os.ReadDir(filepath.Dir(path))
 	if err != nil {
 		t.Fatal(err)

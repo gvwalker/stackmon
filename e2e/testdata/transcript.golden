@@ -480,6 +480,26 @@ $ stackmon bump demo
 error: bump: ROOT/srv/demo/compose.yaml changed since it was checked (found "REGISTRY/app:1.0.0@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" where "REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c" was expected); re-run check
 --- exit 1 ---
 
+### TestBumpSerialisesWritersAndRefusesAnEditAfterValidation
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpSerialisesWritersAndRefusesAnEditAfterValidation
+the second bump was still waiting while the first held the transaction lock
+
+### TestBumpSerialisesWritersAndRefusesAnEditAfterValidation
+$ stackmon bump demo
+--- stderr ---
+error: bump: ROOT/srv/demo/compose.yaml changed while it was being rewritten; the edit was kept and nothing was overwritten; re-run check
+--- exit 1 ---
+
+### TestBumpSerialisesWritersAndRefusesAnEditAfterValidation
+$ stackmon bump demo
+--- stderr ---
+error: bump: ROOT/srv/demo/compose.yaml changed since it was checked (found "REGISTRY/app:1.0.0@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" where "REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c" was expected); re-run check
+--- exit 1 ---
+
 ### TestBumpDryRunRefusesAFileChangedWhileItRuns
 $ stackmon enroll ROOT/srv/demo
 --- stdout ---
