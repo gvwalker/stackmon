@@ -1,0 +1,21 @@
+name: PR documentation
+
+'on':
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: PR documentation contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # PR text is read as JSON data, never interpolated into a shell command.
+      # Use pull_request, not pull_request_target: no write token or secrets.
+      - run: python3 scripts/release.py validate-pr "$GITHUB_EVENT_PATH"

@@ -2,3 +2,5 @@
 /dist/
 /.worktrees/
 /e2e/out/
+/scripts/out/
+/scripts/__pycache__/

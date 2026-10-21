@@ -309,16 +309,42 @@ gh workflow run release.yml -f dry_run=true
 gh workflow run release.yml -f version=v0.5.0
 ```
 
-It picks a version, then builds, tags, and publishes:
+The workflow plans an exact commit on `main`, verifies it, builds the supported
+static binaries, and publishes through a draft after checking the asset digests.
+Conventional squash subjects determine the version: breaking changes are major,
+features minor, fixes patch. Infrastructure and documentation alone do not force
+a release. Only stable `vMAJOR.MINOR.PATCH` versions are supported; the historical
+`v0.4` is read as `0.4.0`.
 
-1. **Version.** By default the next version is derived from the commits since the last tag, by [Conventional Commits](https://www.conventionalcommits.org): a `BREAKING CHANGE` (or `!` after the type) is a major, `feat` is a minor, `fix`, `perf`, `refactor`, or an unrecognised subject is a patch, and `docs`, `test`, `ci`, and `chore` are not releasable on their own. Set the `version` input to release a specific version instead. Tags are normalised to full `vMAJOR.MINOR.PATCH` from here on; the historical `v0.4` is read as `0.4.0`, so a patch release after it is `v0.4.1`.
-2. **Notes.** Every PR merged since the last tag becomes a line in the release notes, grouped into Breaking Changes, Features, Fixes and Improvements, and Other Changes. If there were no merged PRs, the commits since the last tag are used instead. Changes that only affect how the project is built — the workflows, the release script, and the agent docs — are left out, since they describe the plumbing rather than the program, and do not by themselves justify a release. A PR that touches both the plumbing and the program is kept. The run summary reports what was left out, so a short changelog is a recorded decision rather than a silent gap. The published binary reports this version, so `stackmon whats-new` and `stackmon update` see the same notes you read on the release page.
-3. **Gates, tag, publish.** The code at the tag passes `gofmt`, `go vet`, and `go test -race ./...` before anything is tagged. The supported static binaries are then built with that version stamped in, SHA-256 checksums are generated, the tag is pushed, and the GitHub release is created with the notes and assets. Each asset's SHA-256 is also published by GitHub itself, as the asset's `digest`, and `stackmon update` verifies a download against that rather than against `checksums.txt` — so the file is kept only for the benefit of stackmon versions older than that, which is why the release page carries both.
+Release notes use each PR's **Release note** paragraph and include PR links,
+authors, migration guidance for breaking changes, and a full changelog link.
+Older PRs fall back to their landed subject, with a warning. Process-only work
+is omitted with a recorded reason; useful user documentation can appear without
+forcing a version. `stackmon whats-new` and `stackmon update` see the notes
+published on the release page.
 
-The run must start from a commit on `main`; a branch that is not merged is refused. `dry_run=true` prints the version and notes to the run summary and stops there, tagging and publishing nothing.
-
-The version and notes come from `scripts/release-plan.sh`, which you can also run locally against a checkout to preview a release:
+A dry run uploads `release-plan` containing the Markdown notes and a hashed JSON
+snapshot of the SHA, version, classification, source PR metadata, and omissions.
+Publish exactly that plan, or resume after a partial publication, using its
+**original** completed Release run ID (not a later run that reused it):
 
 ```sh
+gh workflow run release.yml -f plan_run_id=123456789
+```
+
+Leave `version` empty when reusing a plan. A new dispatch without `plan_run_id`
+plans again against its own commit and live PR metadata. Rerunning only the
+failed publish job also preserves the original plan. Expired artifacts require
+a fresh reviewed plan; a conflicting existing tag is never moved.
+
+Preview locally with authenticated `gh`, Python 3, and full history/tags:
+
+```sh
+git fetch origin main --tags
 ./scripts/release-plan.sh /tmp/release-notes.md
 ```
+
+This creates `/tmp/release-notes.md` and `/tmp/release-notes.json` without tagging
+or publishing. See the [release runbook](docs/agents/releases.md) for version
+policy, recovery, and verification. `checksums.txt` remains available for older
+updaters; current `stackmon update` verifies GitHub's asset digest.

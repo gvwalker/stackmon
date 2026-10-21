@@ -20,6 +20,11 @@ Squash merge only; the PR title becomes the commit subject that the release scri
 
 Sync, branch, implement, open a PR, get it green, merge, clean up — and how to triage an issue before building it. See `docs/agents/workflow.md`.
 
+### Releases
+
+When planning, publishing, or recovering a release, read `docs/agents/releases.md`.
+For every PR, follow the documentation contract in `docs/agents/workflow.md`.
+
 ### Testing
 
 - Never write unit tests after you write code.

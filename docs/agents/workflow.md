@@ -94,41 +94,49 @@ is nothing to switch back afterwards.
 
 ## Open the PR
 
-`gh pr create` with the title as the subject the release script will parse
-(see [commits-and-prs.md](commits-and-prs.md)). Body via heredoc:
+Use the PR title as the squash subject (see
+[commits-and-prs.md](commits-and-prs.md)). Start from
+[the PR template](../../.github/pull_request_template.md), remove its
+placeholders, and pass the finished description with `gh pr create --body-file`.
 
-```bash
-gh pr create --base main \
-  --title "fix(update): verify downloads against the asset digest GitHub reports" \
-  --body-file - <<'BODY'
-Closes #62.
+### Document the delivered change
 
-## The error
-...
+1. Link the issue first: `Closes #NN.` when all its scope is delivered;
+   `Related to #NN.` for investigation or partial work. Read the issue and the
+   latest Agent Brief before implementation. Explain any deferred criteria.
+2. Lead with the observed problem and resulting behavior, including the real
+   symptom where useful. Keep implementation detail proportional to the change.
+3. Fill **Release note** with a short user-facing paragraph: trigger, changed
+   result, and any required action. For process/test-only work use
+   `None: <specific reason>`. Documentation can have a release note without
+   forcing a version. Older PRs without this section use a visible title fallback.
+4. Fill **Compatibility** with `None.` or, for a breaking title containing `!`,
+   `BREAKING CHANGE: <affected users and migration steps>`.
+5. Fill **Documentation** with changed paths and their purpose, or why no update
+   is needed. CLI flags/output/refusals/configuration/platform changes belong in
+   README or a user guide. Domain meaning belongs in `CONTEXT.md`; architectural
+   decisions follow [domain guidance](domain.md). Workflow obligations belong in
+   the canonical agent guide, with conflicting examples fixed in the same PR.
+6. Fill **Verification** with acceptance criteria mapped to scenarios and
+   observed outcomes, exact commands actually run, and durable artifact paths
+   or CI links plus regeneration commands. Write new tests before implementation;
+   preserve the E2E-first rules in `AGENTS.md`. A `/tmp` path alone is insufficient:
+   retain the reusable script or fixture and its output in the repo or CI.
+7. Read the final PR title/body before merge: remove placeholders and heredoc
+   delimiters, check examples against their explanation, and ensure the
+   verification refers to the reviewed commit. Validate locally with an event
+   JSON file: `python3 scripts/release.py validate-pr /tmp/pr-event.json`.
 
-## The fix
-...
-
-## Verification
-`go test ./e2e -run TestUpdate -count=1` — mismatch refused, binary untouched.
-BODY
-```
-
-Body shape that has worked here:
-
-- **First line `Closes #NN.`** — squash merge closes it automatically. One issue
-  per PR; if a PR genuinely closes several, list them all.
-- **Then a prose section** — the error as the user sees it (paste the real
-  output), then the fix. The PR body survives verbatim as the commit body, so
-  write it for a changelog reader, not as scratch.
-- **Verification last**, naming the command you actually ran.
-
-Avoid the `## What / ## Why / ## Testing` headings on bug fixes — they invite
-restating the diff. Prose with the symptom first lands better.
+The issue owns scope and triage decisions; the PR owns delivered behavior and
+verification; product docs own lasting usage guidance. Record scope changes or
+blockers on the issue when needed. Routine work needs no duplicate journal or
+mandatory progress comments.
 
 ## Get it green
 
-CI is `gofmt -l` → `go vet` → `go test -race ./...`. Poll rather than guess:
+CI checks the PR contract and release-tool scenarios, then
+`gofmt -l` → `go vet` → `go test -race ./... -count=1`. The verification
+artifact retains the application and release-tool transcripts, even on failure. Poll rather than guess:
 
 ```bash
 gh pr checks 60
@@ -223,8 +231,9 @@ Do not assign or claim an issue until it is `ready-for-agent`.
 
 ## Two gotchas this repo has actually hit
 
-- **Docs and CI changes are not releases.** `release-plan.sh` excludes them from
-  the notes. `docs:` / `ci:` PRs need no `feat`/`fix` framing.
+- **Docs and CI changes do not force a product release.** Process-only notes
+  are omitted with a reason; useful user docs can accompany a release.
+  See [releases](releases.md). `docs:` / `ci:` PRs need no `feat`/`fix` framing.
 - **An E2E-assertion PR proves a user-visible outcome.** Assert the enrolled
   inventory or a rendered report, not the internal metadata that produced it —
   a candidate-metadata assertion passes while the persisted state is wrong.
