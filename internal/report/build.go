@@ -283,7 +283,7 @@ func Build(ctx context.Context, stacks []compose.Stack, opts Options) Report {
 
 // constraintFor prefers an explicit config glob over inference.
 func constraintFor(cfg config.Config, stack string, ref imageref.Ref) policy.Constraint {
-	if glob := cfg.Image(stack, ref.Repository).Constraint; glob != "" {
+	if glob := cfg.Image(stack, ref.Registry+"/"+ref.Repository).Constraint; glob != "" {
 		return policy.Parse(glob)
 	}
 	// A digest-only pin has no tag to infer from; its version arrives from
@@ -429,7 +429,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 
 	// Release notes need a GitHub repository: the label, else config.
 	img.NotesRepo = notes.RepoFromSource(img.Source)
-	if override := cfg.Image(st.Name, svc.Ref.Repository).Repo; override != "" {
+	if override := cfg.Image(st.Name, svc.Ref.Registry+"/"+svc.Ref.Repository).Repo; override != "" {
 		img.NotesRepo = override
 	}
 
@@ -440,7 +440,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 	}
 
 	// Re-derive the constraint now that a digest-only pin has a version.
-	glob := cfg.Image(st.Name, svc.Ref.Repository).Constraint
+	glob := cfg.Image(st.Name, svc.Ref.Registry+"/"+svc.Ref.Repository).Constraint
 	c := policy.Infer(img.Version)
 	if glob != "" {
 		c = policy.Parse(glob)

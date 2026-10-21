@@ -85,7 +85,7 @@ func TestCheckHonoursAConfiguredConstraint(t *testing.T) {
 	e.push("pg", "pg18.1", image{})
 	e.docker.running(container{Project: "db", Service: "postgres", ImageID: "sha256:local",
 		RepoDigests: []string{"pg@" + declared}})
-	e.config("[stacks.db.images.pg]\nconstraint = \"pg18*\"\n")
+	e.config(fmt.Sprintf("[stacks.db.images.%q]\nconstraint = \"pg18*\"\n", e.host+"/pg"))
 	e.enrollStack("db", fmt.Sprintf("services:\n  postgres:\n    image: %s\n", e.ref("pg", "pg15")))
 
 	row := e.checkJSON().image(t, "db", "postgres")
@@ -102,7 +102,7 @@ func TestCheckRanksBuildNumbersNumerically(t *testing.T) {
 	e.push("lsio", "4.0.19.1000-ls401", image{})
 	e.docker.running(container{Project: "media", Service: "app", ImageID: "sha256:local",
 		RepoDigests: []string{"lsio@" + deployed}})
-	e.config("[stacks.media.images.lsio]\nconstraint = \"4.0.19.*\"\n")
+	e.config(fmt.Sprintf("[stacks.media.images.%q]\nconstraint = \"4.0.19.*\"\n", e.host+"/lsio"))
 	e.enrollStack("media", fmt.Sprintf("services:\n  app:\n    image: %s\n", e.ref("lsio", "4.0.19.999-ls400")))
 
 	row := e.checkJSON().image(t, "media", "app")
@@ -260,7 +260,7 @@ func TestCheckKeepsGoingWhenOneRegistryIsUnreachable(t *testing.T) {
 func TestCheckReportsUnknownWhenAConstraintMatchesNoTags(t *testing.T) {
 	e := newEnv(t)
 	e.push("pg", "pg15", image{})
-	e.config("[stacks.db.images.pg]\nconstraint = \"pg99*\"\n")
+	e.config(fmt.Sprintf("[stacks.db.images.%q]\nconstraint = \"pg99*\"\n", e.host+"/pg"))
 	e.enrollStack("db", fmt.Sprintf("services:\n  postgres:\n    image: %s\n", e.ref("pg", "pg15")))
 
 	row := e.checkJSON().image(t, "db", "postgres")
@@ -711,7 +711,7 @@ func TestCheckKeepsVersionlessGlobMatches(t *testing.T) {
 	deployed := e.push("pg", "pg15", image{})
 	e.docker.running(container{Project: "db", Service: "postgres", ImageID: "sha256:local",
 		RepoDigests: []string{"pg@" + deployed}})
-	e.config("[stacks.db.images.pg]\nconstraint = \"*\"\n")
+	e.config(fmt.Sprintf("[stacks.db.images.%q]\nconstraint = \"*\"\n", e.host+"/pg"))
 	e.enrollStack("db", fmt.Sprintf("services:\n  postgres:\n    image: %s\n", e.ref("pg", "pg15")))
 
 	row := e.checkJSON().image(t, "db", "postgres")

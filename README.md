@@ -257,6 +257,18 @@ constraint = "pg18*"
 repo = "traefik/traefik"
 ```
 
+Image override keys name repositories without tags or digests, using the same
+normalization as Compose image references. For Docker Hub official images,
+`traefik`, `library/traefik`, `docker.io/traefik`, and
+`index.docker.io/library/traefik` are equivalent. Namespaced images such as
+`acme/traefik` stay separate from official images. Include the registry for
+images outside Docker Hub, for example `[stacks.demo.images."ghcr.io/acme/traefik"]`;
+a Docker Hub override never applies to that registry. If an existing override
+used a bare repository path for another registry, add that registry to its key.
+Equivalent keys may coexist only when both their `repo` and `constraint` values
+are identical; otherwise every command rejects the configuration, naming the
+conflicting keys. Remove a duplicate or make its values identical.
+
 `constraint` is a glob over tags, not a semantic-version range. Use it for opaque tags where automatically choosing a newer tag would be unsafe. For example, `pg15` must not silently become `pg18`.
 
 ## Statuses
