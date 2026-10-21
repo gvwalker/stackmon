@@ -2,10 +2,12 @@ PR edits: valid contract accepted; malformed title, missing/duplicate/fenced sec
 body-only legacy breaking change: major bump and Breaking Changes agree despite edited PR title
 curated plan: v0.4 -> v0.4.1; linked prose, attribution, snapshot; edited notes refused
 docs notes do not bump; runtime omission keeps patch impact; infrastructure omitted with reasons
+draft discovery: tag endpoint hides drafts; paginated release list finds exact tag after 100 unrelated releases; assets verified and draft published
 first release: v0.1.0; historical main commit supported with fixed SHA
 paginated commit attribution: mismatched/missing merge SHA excluded; direct commit remains visible
 publication refusals: checksum mismatch before tagging; wrong remote tag never moved; wrong checkout refused
 publication: failed upload leaves draft and fixed tag; retry verifies assets then publishes; successful repeat performs no mutation
+recovery tooling: current publisher releases restored historical target without changing its SHA
 release target policy: unrelated tags ignored; older, existing-core, prerelease, malformed, branch-only and missing-main refused
 reviewed plan reuse: fixed source SHA retained after main advances; unrelated workflow and tampered plan refused
-scenarios=10; failures=0; errors=0
+scenarios=11; failures=0; errors=0

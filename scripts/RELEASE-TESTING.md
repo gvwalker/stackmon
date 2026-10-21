@@ -18,6 +18,8 @@ observable Markdown/JSON/command transcripts. No network or GitHub writes.
 - Publication: wrong/missing remote tag, same tag/right SHA retry, failed draft
   creation/upload, missing/wrong assets/checksums, conflicting published
   release, successful repeat without mutation, no tag movement, fixed SHA.
+  Drafts are invisible to tag lookup; discovery must find the exact tag across
+  paginated releases, including when resuming an interrupted upload.
 
 Run `python3 scripts/test_release.py`. It writes a stable scenario transcript
 to `scripts/out/release-transcript.txt` even when a scenario fails. Compare it
