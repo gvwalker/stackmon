@@ -83,6 +83,10 @@ The inventory is stored at `~/.local/state/stackmon/inventory.json`. Treat it as
 
 ## Commands
 
+Remote SSH support is planned in [#57](https://github.com/gvwalker/stackmon/issues/57).
+See [remote SSH permissions](docs/remote-ssh.md) for the proposed exact command
+allowlist and a restricted-key configuration example.
+
 ### `discover`
 
 ```sh
