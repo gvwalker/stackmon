@@ -113,6 +113,16 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     steps:
+      # A restored plan can target code predating a release-tool fix. Keep the
+      # tools from this workflow's revision while building the planned SHA.
+      - name: Checkout release tools
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Preserve release tools
+        run: cp -R scripts "$RUNNER_TEMP/release-tools"
+
       - name: Checkout the commit being released
         uses: actions/checkout@v7
         with:
@@ -129,10 +139,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch origin main --tags
-          python3 scripts/release.py verify release-notes.json release-notes.md
+          python3 "$RUNNER_TEMP/release-tools/release.py" verify release-notes.json release-notes.md
 
       - name: Verify release tooling
-        run: python3 scripts/test_release.py
+        run: python3 "$RUNNER_TEMP/release-tools/test_release.py"
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -164,7 +174,7 @@ jobs:
           overwrite: true
           path: |
             e2e/out/transcript.txt
-            scripts/out/release-transcript.txt
+            ${{ runner.temp }}/release-tools/out/release-transcript.txt
 
       - name: Build binaries
         env:
@@ -195,4 +205,4 @@ jobs:
       - name: Publish or resume the verified release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/release.py publish release-notes.json release-notes.md dist
+        run: python3 "$RUNNER_TEMP/release-tools/release.py" publish release-notes.json release-notes.md dist

@@ -237,12 +237,11 @@ def verify(plan_file, notes_file, checkout=True):
 
 
 def read_release(repo, version):
-    try:
-        return json.loads(run("gh", "api", f"repos/{repo}/releases/tags/{version}"))
-    except subprocess.CalledProcessError as error:
-        if "HTTP 404" in error.stderr:
-            return None
-        raise
+    # GitHub's tag endpoint excludes drafts. The authenticated list includes
+    # them, including a draft left behind by an interrupted publication.
+    pages = json.loads(run("gh", "api", "--paginate", "--slurp", f"repos/{repo}/releases"))
+    return next((release for page in pages for release in page
+                 if release["tag_name"] == version), None)
 
 
 def restore_plan(run_id):

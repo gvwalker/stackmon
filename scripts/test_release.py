@@ -44,9 +44,11 @@ if a[0] == 'api':
     if '/actions/runs/' in endpoint: output(s['run'])
     if '/actions/workflows/' in endpoint: output({'id': 7})
     if '/releases/tags/' in endpoint:
-        if s['release'] is None:
+        if s['release'] is None or s['release']['draft']:
             save(); print('HTTP 404: Not Found', file=sys.stderr); sys.exit(1)
         output(s['release'])
+    if endpoint.endswith('/releases'):
+        output([s.get('other_releases', []), [s['release']] if s['release'] else []])
 if a[:2] == ['release', 'create']:
     s['release'] = {'draft': True, 'prerelease': False, 'tag_name': a[2],
                     'body': pathlib.Path(a[a.index('--notes-file')+1]).read_text(), 'assets': []}
@@ -272,6 +274,22 @@ class ReleaseScenarios(unittest.TestCase):
         self.assertEqual(before, len([c for c in self.state()["calls"] if c[0] == "release"]))
         TRANSCRIPT.append("publication: failed upload leaves draft and fixed tag; retry verifies assets then publishes; successful repeat performs no mutation")
 
+    def test_publish_discovers_draft_on_later_page(self):
+        self.commit("fix: runtime")
+        self.plan()
+        self.dist()
+        state = self.state()
+        state['other_releases'] = [{'tag_name': 'v9.0.0', 'draft': True}] * 100
+        self.save(state)
+        self.command("publish", "notes.json", "notes.md", "dist")
+        state = self.state()
+        self.assertFalse(state['release']['draft'])
+        self.assertEqual({a['name'] for a in state['release']['assets']}, set(ASSETS + ['checksums.txt']))
+        self.assertEqual(sum(c[:2] == ['release', 'create'] for c in state['calls']), 1)
+        self.assertTrue(any(c[0] == 'api' and '--paginate' in c and '--slurp' in c
+                            and c[-1].endswith('/releases') for c in state['calls']))
+        TRANSCRIPT.append("draft discovery: tag endpoint hides drafts; paginated release list finds exact tag after 100 unrelated releases; assets verified and draft published")
+
     def test_publish_refusals_and_plan_reuse(self):
         self.commit("fix: runtime")
         self.plan()
@@ -308,7 +326,14 @@ class ReleaseScenarios(unittest.TestCase):
         state['artifact']['release-notes.json'] = state['artifact']['release-notes.json'].replace('"bump": "patch"', '"bump": "minor"')
         self.save(state)
         self.command('restore-plan', '123', ok=False)
+        # Current release tools must also publish an older, restored target.
+        self.git('checkout', '--detach', sha)
+        self.dist()
+        self.command('publish', 'release-notes.json', 'release-notes.md', 'dist')
+        self.assertEqual(self.git('ls-remote', 'origin', 'refs/tags/v0.4.1^{}').split()[0], sha)
+        self.assertFalse(self.state()['release']['draft'])
         TRANSCRIPT.append('reviewed plan reuse: fixed source SHA retained after main advances; unrelated workflow and tampered plan refused')
+        TRANSCRIPT.append('recovery tooling: current publisher releases restored historical target without changing its SHA')
 
 
 if __name__ == "__main__":

@@ -65,7 +65,8 @@ removed. That migration fallback does not require editing old PRs.
 
 ## Verify, publish, or recover
 
-The publishing job checks out the plan SHA, verifies hashes/repository/baseline,
+The publishing job preserves release tools from the workflow run's SHA, then
+checks out the plan SHA, verifies hashes/repository/baseline,
 runs release-tool scenarios, formatting, vet and uncached race tests, and builds
 the three supported binaries with the planned version. CI and release runs
 retain both verification transcripts, including on failure. The subprocess
@@ -84,6 +85,13 @@ safe to refill; differing notes, tag SHA, prerelease status, or published assets
 cause refusal. A successful repeat verifies the published release without
 rewriting its body or assets. If a newer release has landed, review a new plan
 instead. Preserve published tags; recover by diagnosing the failed state.
+
+Draft discovery uses the authenticated, paginated releases list: GitHub's
+release-by-tag endpoint excludes drafts. An empty draft left by a failed run
+can therefore be resumed without deleting it or moving its tag.
+After a release-tool fix lands on main, dispatch with the original
+`plan_run_id` to use the fixed tools with the saved target and notes. Rerunning
+an old job uses its original workflow and tools instead.
 
 Local commands (publishing mutates git/GitHub, the others do not):
 
