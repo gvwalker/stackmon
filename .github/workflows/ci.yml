@@ -26,6 +26,9 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
+      - name: Verify release tooling
+        run: python3 scripts/test_release.py
+
       - name: Verify formatting
         run: |
           if [ -n "$(gofmt -l .)" ]; then
@@ -38,7 +41,17 @@ jobs:
         run: go vet ./...
 
       - name: Run tests with race detector
-        run: go test -v -race ./...
+        run: go test -v -race ./... -count=1
+
+      - name: Retain verification transcripts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: verification-transcripts
+          overwrite: true
+          path: |
+            e2e/out/transcript.txt
+            scripts/out/release-transcript.txt
 
   changes:
     name: Detect artifact changes

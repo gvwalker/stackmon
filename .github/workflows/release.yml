@@ -7,6 +7,10 @@ name: Release
         description: 'Version to release, e.g. v0.5.0. Leave empty to derive it from the commits since the last tag.'
         required: false
         type: string
+      plan_run_id:
+        description: 'Reuse the exact plan from an original completed Release run (dry run or failed publication). Leave version empty.'
+        required: false
+        type: string
       dry_run:
         description: 'Plan the release and print the notes without tagging or publishing.'
         required: false
@@ -25,18 +29,15 @@ concurrency:
   group: release
   cancel-in-progress: false
 
-env:
-  # The commit the release is built from and tagged at. Fixed at plan time so
-  # the plan, the binaries, and the tag cannot disagree.
-  SHA: ${{ github.sha }}
-
 jobs:
   plan:
     name: Plan release
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.plan.outputs.version }}
       previous: ${{ steps.plan.outputs.previous_tag }}
+      sha: ${{ steps.plan.outputs.sha }}
     steps:
       - name: Checkout main
         uses: actions/checkout@v7
@@ -52,11 +53,20 @@ jobs:
         id: plan
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
           # Reading merged PRs is what the notes are made of, so gh needs a
           # token here just as much as it does when creating the release.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./scripts/release-plan.sh release-notes.md >> "$GITHUB_OUTPUT"
+          if [ -n "$PLAN_RUN_ID" ]; then
+            if [ -n "$INPUT_VERSION" ]; then
+              echo 'A saved plan and a new version override cannot be combined.' >&2
+              exit 1
+            fi
+            python3 scripts/release.py restore-plan "$PLAN_RUN_ID" >> "$GITHUB_OUTPUT"
+          else
+            ./scripts/release-plan.sh release-notes.md >> "$GITHUB_OUTPUT"
+          fi
           cat release-notes.md
 
       - name: Summarise the plan
@@ -64,19 +74,18 @@ jobs:
         env:
           VERSION: ${{ steps.plan.outputs.version }}
           PREVIOUS: ${{ steps.plan.outputs.previous_tag }}
-          PR_COUNT: ${{ steps.plan.outputs.prs }}
-          NOTED: ${{ steps.plan.outputs.noted }}
+          RELEASE_SHA: ${{ steps.plan.outputs.sha }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           {
             echo "## Release plan"
             echo
             echo "\`${PREVIOUS:-none}\` -> \`${VERSION:-planning failed, see the log}\`"
-            # Say what was left out, so a short changelog is a decision on
-            # record rather than a gap someone has to notice.
-            if [ -n "$PR_COUNT" ] && [ "$NOTED" != "$PR_COUNT" ]; then
+            echo
+            echo "Commit: \`$RELEASE_SHA\`"
+            if [ -f release-notes.json ]; then
               echo
-              echo "$((PR_COUNT - NOTED)) of $PR_COUNT merged PR(s) changed only how the project is built and are not in the notes."
+              jq -r '.changes[] | select(.included == false) | "- Omitted \(.sha[0:8]): \(.reason)"' release-notes.json
             fi
             if [ "$DRY_RUN" = 'true' ]; then
               echo
@@ -86,11 +95,15 @@ jobs:
             cat release-notes.md 2>/dev/null || true
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload release notes
+      - name: Upload release plan
         uses: actions/upload-artifact@v7
         with:
-          name: release-notes
-          path: release-notes.md
+          name: release-plan
+          overwrite: true
+          path: |
+            release-notes.md
+            release-notes.json
+          if-no-files-found: error
 
   publish:
     name: Build and publish ${{ needs.plan.outputs.version }}
@@ -103,13 +116,23 @@ jobs:
       - name: Checkout the commit being released
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.SHA }}
+          ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
 
-      - name: Download release notes
+      - name: Download release plan
         uses: actions/download-artifact@v7
         with:
-          name: release-notes
+          name: release-plan
+
+      - name: Verify saved plan and checkout
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin main --tags
+          python3 scripts/release.py verify release-notes.json release-notes.md
+
+      - name: Verify release tooling
+        run: python3 scripts/test_release.py
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -131,16 +154,27 @@ jobs:
         run: go vet ./...
 
       - name: Run tests with race detector
-        run: go test -race ./...
+        run: go test -race ./... -count=1
+
+      - name: Retain verification transcripts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-verification-transcripts
+          overwrite: true
+          path: |
+            e2e/out/transcript.txt
+            scripts/out/release-transcript.txt
 
       - name: Build binaries
         env:
           CGO_ENABLED: '0'
+          VERSION: ${{ needs.plan.outputs.version }}
         run: |
           mkdir -p dist
           for target in linux-amd64 linux-arm64 darwin-arm64; do
             GOOS=${target%-*} GOARCH=${target#*-} \
-              go build -trimpath -ldflags="-s -w -X main.version=${{ needs.plan.outputs.version }}" \
+              go build -trimpath -ldflags="-s -w -X main.version=$VERSION" \
               -o "dist/stackmon-$target" ./cmd/stackmon
           done
 
@@ -158,31 +192,7 @@ jobs:
           cd dist
           sha256sum stackmon-* > checksums.txt
 
-      - name: Create tag
-        env:
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: |
-          # An annotated tag needs a committer, and a runner has no git
-          # identity. The author of the commit being tagged is the tagger:
-          # the same person who wrote the code being released, and the same
-          # identity every hand-made tag on this repo carries. Reading it from
-          # the commit needs no API call, so it cannot be denied one, and the
-          # NUL separator keeps a name containing anything from confusing the
-          # two fields.
-          IFS= read -r -d '' tagger_name < <(git log -1 --format='%an%x00' "$SHA")
-          IFS= read -r -d '' tagger_email < <(git log -1 --format='%ae%x00' "$SHA")
-          echo "tagging as $tagger_name <$tagger_email>"
-          git -c user.name="$tagger_name" -c user.email="$tagger_email" \
-            tag -a "$VERSION" -m "stackmon $VERSION" "$SHA"
-          git push origin "refs/tags/$VERSION"
-
-      - name: Create GitHub Release
+      - name: Publish or resume the verified release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: |
-          gh release create "$VERSION" \
-            dist/stackmon-* \
-            dist/checksums.txt \
-            --title "$VERSION" \
-            --notes-file release-notes.md
+        run: python3 scripts/release.py publish release-notes.json release-notes.md dist
