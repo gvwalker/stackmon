@@ -102,6 +102,11 @@ func DefaultPath() (string, error) {
 	return filepath.Join(home, ".local", "state", "stackmon", "inventory.json"), nil
 }
 
+// lockPath is the file that serialises writers to the inventory at path.
+// It is named after the inventory and never replaced, so it is the one thing
+// every writer can contend on.
+func lockPath(path string) string { return path + ".lock" }
+
 // Load reads the inventory. A missing file yields an empty inventory.
 func Load(path string) (Inventory, error) {
 	data, err := os.ReadFile(path)
@@ -122,9 +127,48 @@ func Load(path string) (Inventory, error) {
 	return inv, nil
 }
 
-// Save writes the inventory atomically: a temp file in the destination
+// Update changes the inventory at path and writes the result back.
+//
+// The whole load-modify-save transaction happens under the inventory's
+// writer lock, so two commands that both change the inventory cannot
+// discard each other's changes: the second one waits for the first to
+// finish, and then loads what the first one wrote. Without the lock both
+// commands read the same inventory, both change it, and the second write
+// silently drops the first change.
+//
+// A change that returns an error is not written: the inventory is left as it
+// was, and the lock is released.
+func Update(path string, change func(*Inventory) error) error {
+	unlock, err := lock(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	afterLock()
+
+	inv, err := Load(path)
+	if err != nil {
+		return err
+	}
+	afterLoad()
+
+	if err := change(&inv); err != nil {
+		return err
+	}
+	if err := save(path, inv); err != nil {
+		return err
+	}
+	afterSave()
+	return nil
+}
+
+// save writes the inventory atomically: a temp file in the destination
 // directory, then a rename, so an interrupted write cannot corrupt it.
-func Save(path string, inv Inventory) error {
+//
+// It is not exported: a write that is not part of a locked transaction is
+// exactly the lost update this package exists to prevent.
+func save(path string, inv Inventory) error {
 	inv.Version = CurrentVersion
 	if inv.Stacks == nil {
 		inv.Stacks = []Stack{}

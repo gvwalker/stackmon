@@ -10,6 +10,7 @@
 package e2e
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
@@ -425,6 +426,9 @@ func (e *env) set(key, value string) { e.over[key] = value }
 var (
 	timeRe = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}T[\d:.]+Z\b`)
 	dateRe = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
+	// tempRe is the name of the temp file an inventory is written through.
+	// Its random suffix is not the same on every run.
+	tempRe = regexp.MustCompile(`\.inventory-\d+\.json`)
 )
 
 // normalize erases the parts of an output that vary between runs -- the
@@ -438,6 +442,7 @@ func (e *env) normalize(s string) string {
 	s = strings.ReplaceAll(s, e.root, "ROOT")
 	s = timeRe.ReplaceAllString(s, "TIME")
 	s = dateRe.ReplaceAllString(s, "DATE")
+	s = tempRe.ReplaceAllString(s, ".inventory-TEMP.json")
 	return s
 }
 
@@ -454,7 +459,10 @@ func (e *env) run(args ...string) result { return e.runBinary(devBinary, args...
 type pending struct {
 	e    *env
 	args []string
+	cmd  *exec.Cmd
 	done chan result
+	// err is the failure that stopped the run, when it was not an exit code.
+	err error
 }
 
 // start runs the binary in the background. The caller must wait on it.
@@ -464,15 +472,41 @@ func (e *env) start(args ...string) *pending { return e.startWith(nil, args...) 
 // this process alone, so two concurrent runs can sit at different points.
 func (e *env) startWith(over map[string]string, args ...string) *pending {
 	e.t.Helper()
-	p := &pending{e: e, args: args, done: make(chan result, 1)}
-	go func() { p.done <- e.execWith(over, devBinary, args...) }()
+	cmd := e.command(over, devBinary, args...)
+	var out, errOut bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errOut
+	if err := cmd.Start(); err != nil {
+		e.t.Fatalf("starting stackmon %v: %v", args, err)
+	}
+	p := &pending{e: e, args: args, cmd: cmd, done: make(chan result, 1)}
+	go func() {
+		res, err := outcome(args, cmd.Wait(), out.String(), errOut.String())
+		p.err = err
+		p.done <- res
+	}()
 	return p
+}
+
+// pid is the process id of the running command, so a scenario can tell one
+// command's announcements from another's.
+func (p *pending) pid() int { return p.cmd.Process.Pid }
+
+// kill ends the command the way a crash does: no cleanup, and nothing it was
+// holding is released by it.
+func (p *pending) kill(t *testing.T) {
+	t.Helper()
+	if err := p.cmd.Process.Kill(); err != nil {
+		t.Fatalf("killing stackmon %v: %v", p.args, err)
+	}
 }
 
 func (p *pending) wait(t *testing.T) result {
 	t.Helper()
 	select {
 	case r := <-p.done:
+		if p.err != nil {
+			t.Fatal(p.err)
+		}
 		p.e.record(p.args, r)
 		return r
 	case <-time.After(60 * time.Second):
@@ -494,22 +528,39 @@ func (e *env) exec(bin string, args ...string) result { return e.execWith(nil, b
 
 func (e *env) execWith(over map[string]string, bin string, args ...string) result {
 	e.t.Helper()
-	cmd := exec.Command(bin, args...)
-	cmd.Env = e.environ(over)
+	cmd := e.command(over, bin, args...)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 
-	err := cmd.Run()
-	res := result{stdout: out.String(), stderr: errOut.String()}
+	res, err := outcome(args, cmd.Run(), out.String(), errOut.String())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return res
+}
+
+// command prepares a run of the binary in the sandbox's environment.
+func (e *env) command(over map[string]string, bin string, args ...string) *exec.Cmd {
+	e.t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Env = e.environ(over)
+	return cmd
+}
+
+// outcome turns a finished run into a result. A run that died of a signal
+// reports the signal as its exit code; anything else that went wrong is a
+// failure to run at all.
+func outcome(args []string, err error, stdout, stderr string) (result, error) {
+	res := result{stdout: stdout, stderr: stderr}
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
 	case errors.As(err, &exit):
 		res.code = exit.ExitCode()
 	default:
-		e.t.Fatalf("running stackmon %v: %v", args, err)
+		return res, fmt.Errorf("running stackmon %v: %w", args, err)
 	}
-	return res
+	return res, nil
 }
 
 func (e *env) record(args []string, r result) {
@@ -619,6 +670,141 @@ func (b *validateBarrier) wait(t *testing.T) {
 
 // release lets every parked binary continue.
 func (b *validateBarrier) release(t *testing.T) {
+	t.Helper()
+	if _, err := b.releaseF.Write(make([]byte, 8)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Inventory transaction barrier
+// ---------------------------------------------------------------------------
+
+// inventoryBarrier is the pair of FIFOs behind STACKMON_E2E_INVENTORY_EVENTS
+// and STACKMON_E2E_INVENTORY_PARK. A stackmon process announces each point of
+// its inventory transaction on the first -- "lock", "load", "save", and
+// "contended" when another writer holds the lock -- and, when the park FIFO
+// is named, waits after loading until the scenario writes to the second.
+//
+// It lets a scenario hold a transaction open and watch that the next writer
+// waits for it instead of racing it.
+type inventoryBarrier struct {
+	events   *os.File
+	releaseF *os.File
+
+	mu   sync.Mutex
+	seen []string
+}
+
+// inventoryBarrier creates the FIFOs a scenario steers an inventory
+// transaction with.
+func (e *env) inventoryBarrier() *inventoryBarrier {
+	e.t.Helper()
+	events := filepath.Join(e.root, "inventory-events.fifo")
+	release := filepath.Join(e.root, "inventory-release.fifo")
+	for _, p := range []string{events, release} {
+		if err := unix.Mkfifo(p, 0o600); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	eventFile, err := os.OpenFile(events, os.O_RDWR, 0)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	releaseFile, err := os.OpenFile(release, os.O_RDWR, 0)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	b := &inventoryBarrier{events: eventFile, releaseF: releaseFile}
+	go b.read()
+	// A failed scenario must not leave a parked binary behind.
+	e.t.Cleanup(func() {
+		releaseFile.Write(make([]byte, 8))
+		releaseFile.Close()
+		eventFile.Close()
+	})
+	return b
+}
+
+// eventsEnv is the environment for a command that only announces where its
+// transaction is.
+func (b *inventoryBarrier) eventsEnv() map[string]string {
+	return map[string]string{"STACKMON_E2E_INVENTORY_EVENTS": b.events.Name()}
+}
+
+// parkEnv is the environment for a command that announces and then waits
+// inside its transaction.
+func (b *inventoryBarrier) parkEnv() map[string]string {
+	return map[string]string{
+		"STACKMON_E2E_INVENTORY_EVENTS": b.events.Name(),
+		"STACKMON_E2E_INVENTORY_PARK":   b.releaseF.Name(),
+	}
+}
+
+// read collects the announced events. Every process writes its own line, and
+// a FIFO write is atomic, so the events arrive one at a time and in the order
+// they were announced.
+func (b *inventoryBarrier) read() {
+	sc := bufio.NewScanner(b.events)
+	for sc.Scan() {
+		b.mu.Lock()
+		b.seen = append(b.seen, sc.Text())
+		b.mu.Unlock()
+	}
+}
+
+// waitFor blocks until an event matching pred has been announced, and fails
+// the scenario rather than hanging if it never is.
+func (b *inventoryBarrier) waitFor(t *testing.T, what string, pred func(string) bool) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		b.mu.Lock()
+		for _, ev := range b.seen {
+			if pred(ev) {
+				b.mu.Unlock()
+				return
+			}
+		}
+		b.mu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s; announced so far: %v", what, b.announced())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// announced is every event announced so far.
+func (b *inventoryBarrier) announced() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.seen...)
+}
+
+// order asserts that one event was announced before another.
+func (b *inventoryBarrier) order(t *testing.T, first, second string) {
+	t.Helper()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	firstAt, secondAt := -1, -1
+	for i, ev := range b.seen {
+		if ev == first && firstAt < 0 {
+			firstAt = i
+		}
+		if ev == second && secondAt < 0 {
+			secondAt = i
+		}
+	}
+	if firstAt < 0 || secondAt < 0 {
+		t.Fatalf("expected the events %q and %q; announced: %v", first, second, b.seen)
+	}
+	if firstAt > secondAt {
+		t.Errorf("%q was announced after %q; announced: %v", first, second, b.seen)
+	}
+}
+
+// release lets the parked transaction continue.
+func (b *inventoryBarrier) release(t *testing.T) {
 	t.Helper()
 	if _, err := b.releaseF.Write(make([]byte, 8)); err != nil {
 		t.Fatal(err)
@@ -890,6 +1076,89 @@ func (e *env) enrollStack(name, body string) string {
 		e.t.Fatalf("enrolling %s: exit %d\n%s%s", name, r.code, r.stdout, r.stderr)
 	}
 	return p
+}
+
+// stateDir is the directory stackmon keeps the inventory in.
+func (e *env) stateDir() string {
+	return filepath.Join(e.home(), ".local", "state", "stackmon")
+}
+
+// inventoryPath is the inventory file in the sandbox.
+func (e *env) inventoryPath() string { return filepath.Join(e.stateDir(), "inventory.json") }
+
+// inventoryJSON is the inventory file's bytes, or "" when there is no
+// inventory yet.
+func (e *env) inventoryJSON() string {
+	e.t.Helper()
+	b, err := os.ReadFile(e.inventoryPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return ""
+	}
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return string(b)
+}
+
+// inventoryStack is one entry in the inventory file.
+type inventoryStack struct {
+	Name    string `json:"name"`
+	Project string `json:"project"`
+}
+
+// inventoryStacks are the stacks in the inventory, in the order the file
+// holds them.
+func (e *env) inventoryStacks() []inventoryStack {
+	e.t.Helper()
+	raw := e.inventoryJSON()
+	if raw == "" {
+		return nil
+	}
+	var doc struct {
+		Stacks []inventoryStack `json:"stacks"`
+	}
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		e.t.Fatalf("reading the inventory: %v\n%s", err, raw)
+	}
+	return doc.Stacks
+}
+
+// enrolledNames are the names of the enrolled stacks, sorted.
+func (e *env) enrolledNames() []string {
+	e.t.Helper()
+	names := []string{}
+	for _, s := range e.inventoryStacks() {
+		names = append(names, s.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// boundProject is the Compose project a stack is bound to, or "" when it has
+// no binding.
+func (e *env) boundProject(name string) string {
+	e.t.Helper()
+	for _, s := range e.inventoryStacks() {
+		if s.Name == name {
+			return s.Project
+		}
+	}
+	return ""
+}
+
+// stateDirEntries are the names of the files in the state directory.
+func (e *env) stateDirEntries() []string {
+	e.t.Helper()
+	entries, err := os.ReadDir(e.stateDir())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	names := []string{}
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ---------------------------------------------------------------------------

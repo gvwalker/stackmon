@@ -219,9 +219,10 @@ func TestInventorySurvivesAFreshProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("state directory holds %v, want only inventory.json", names(entries))
-	}
+	// The state directory holds the inventory and the lock that serialises
+	// the writers to it, and nothing else: a rewrite leaves no temp file
+	// behind.
+	assertEqSlice(t, "state directory", names(entries), []string{"inventory.json", "inventory.json.lock"})
 }
 
 // A daemon that is present but failing is not a missing daemon: the error
