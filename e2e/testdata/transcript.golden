@@ -1899,6 +1899,257 @@ enrolled beta (ROOT/srv/beta/compose.yaml)
 ### TestTheInventoryLockIsReleasedWhenTheProcessDies
 inventory: {"version":1,"stacks":[{"name":"beta","dir":"ROOT/srv/beta","file":"compose.yaml","enrolled":"TIME"}]}
 
+### TestImageOverrideAliases/official_shorthand
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestImageOverrideAliases/official_shorthand
+$ stackmon check --json
+  demo         app        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+### TestImageOverrideAliases/official_shorthand
+override "traefik": candidate=1.1.0 notes=e2e/notes; tag lists=1
+
+### TestImageOverrideAliases/official_shorthand
+$ stackmon show demo
+--- stdout ---
+demo / app
+  reference: docker.io/library/traefik:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+
+    1.1.0
+      Configured release notes.
+
+--- exit 0 ---
+
+### TestImageOverrideAliases/official_shorthand
+$ stackmon bump demo
+--- stdout ---
+bumped demo/app: docker.io/library/traefik:1.0.0 -> docker.io/library/traefik:1.1.0
+--- exit 0 ---
+### TestImageOverrideAliases/official_shorthand
+compose after bump:
+services:
+  app:
+    image: docker.io/library/traefik:1.1.0
+
+
+### TestImageOverrideAliases/official_canonical
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestImageOverrideAliases/official_canonical
+$ stackmon check --json
+  demo         app        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+### TestImageOverrideAliases/official_canonical
+override "index.docker.io/library/traefik": candidate=1.1.0 notes=e2e/notes; tag lists=1
+
+### TestImageOverrideAliases/official_canonical
+$ stackmon show demo
+--- stdout ---
+demo / app
+  reference: traefik:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+
+    1.1.0
+      Configured release notes.
+
+--- exit 0 ---
+
+### TestImageOverrideAliases/official_canonical
+$ stackmon bump demo
+--- stdout ---
+bumped demo/app: traefik:1.0.0 -> traefik:1.1.0
+--- exit 0 ---
+### TestImageOverrideAliases/official_canonical
+compose after bump:
+services:
+  app:
+    image: traefik:1.1.0
+
+
+### TestImageOverrideAliases/official_library
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestImageOverrideAliases/official_library
+$ stackmon check --json
+  demo         app        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+### TestImageOverrideAliases/official_library
+override "library/traefik": candidate=1.1.0 notes=e2e/notes; tag lists=1
+
+### TestImageOverrideAliases/official_library
+$ stackmon show demo
+--- stdout ---
+demo / app
+  reference: docker.io/traefik:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+
+    1.1.0
+      Configured release notes.
+
+--- exit 0 ---
+
+### TestImageOverrideAliases/official_library
+$ stackmon bump demo
+--- stdout ---
+bumped demo/app: docker.io/traefik:1.0.0 -> docker.io/traefik:1.1.0
+--- exit 0 ---
+### TestImageOverrideAliases/official_library
+compose after bump:
+services:
+  app:
+    image: docker.io/traefik:1.1.0
+
+
+### TestImageOverrideAliases/non_official
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestImageOverrideAliases/non_official
+$ stackmon check --json
+  demo         app        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+### TestImageOverrideAliases/non_official
+override "acme/traefik": candidate=1.1.0 notes=e2e/notes; tag lists=1
+
+### TestImageOverrideAliases/non_official
+$ stackmon show demo
+--- stdout ---
+demo / app
+  reference: docker.io/acme/traefik:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+
+    1.1.0
+      Configured release notes.
+
+--- exit 0 ---
+
+### TestImageOverrideAliases/non_official
+$ stackmon bump demo
+--- stdout ---
+bumped demo/app: docker.io/acme/traefik:1.0.0 -> docker.io/acme/traefik:1.1.0
+--- exit 0 ---
+### TestImageOverrideAliases/non_official
+compose after bump:
+services:
+  app:
+    image: docker.io/acme/traefik:1.1.0
+
+
+### TestImageOverrideAliases/explicit_registry
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestImageOverrideAliases/explicit_registry
+$ stackmon check --json
+  demo         app        1.0.0      update-available    -> 1.1.0 (minor)
+--- docker available: true ---
+### TestImageOverrideAliases/explicit_registry
+override "ghcr.io/acme/traefik": candidate=1.1.0 notes=e2e/notes; tag lists=1
+
+### TestImageOverrideAliases/explicit_registry
+$ stackmon show demo
+--- stdout ---
+demo / app
+  reference: ghcr.io/acme/traefik:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+
+    1.1.0
+      Configured release notes.
+
+--- exit 0 ---
+
+### TestImageOverrideAliases/explicit_registry
+$ stackmon bump demo
+--- stdout ---
+bumped demo/app: ghcr.io/acme/traefik:1.0.0 -> ghcr.io/acme/traefik:1.1.0
+--- exit 0 ---
+### TestImageOverrideAliases/explicit_registry
+compose after bump:
+services:
+  app:
+    image: ghcr.io/acme/traefik:1.1.0
+
+
+### TestImageOverrideRegistrySeparation
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestImageOverrideRegistrySeparation
+$ stackmon check --json
+  demo         named      pg15       update-available    -> pg18 (major)
+  demo         official   pg15       update-available    -> pg18 (major)
+  demo         other      pg15       not-running        
+  demo         private    pg15       unknown            : no tags matched the constraint (pg99*)
+--- docker available: true ---
+### TestImageOverrideRegistrySeparation
+official: candidate="pg18" notes="e2e/official"
+### TestImageOverrideRegistrySeparation
+private: candidate="" notes="e2e/private"
+### TestImageOverrideRegistrySeparation
+named: candidate="pg18" notes="e2e/acme"
+### TestImageOverrideRegistrySeparation
+other: candidate="" notes=""
+### TestImageOverrideDuplicateAliases/repo
+conflict (repo): error: config: stack "demo" image keys "docker.io/library/traefik" and "traefik" conflict for "index.docker.io/library/traefik"; use one key or identical repo and constraint values
+
+### TestImageOverrideDuplicateAliases/constraint
+conflict (constraint): error: config: stack "demo" image keys "docker.io/library/traefik" and "traefik" conflict for "index.docker.io/library/traefik"; use one key or identical repo and constraint values
+
+
+### TestImageOverrideDuplicateAliases/identical
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestImageOverrideDuplicateAliases/identical
+$ stackmon check --json
+  demo         app        pg15       update-available    -> pg18 (major)
+--- docker available: true ---
+### TestImageOverrideDuplicateAliases/identical
+identical aliases coalesced: candidate=pg18 notes=e2e/notes
+
 ### TestCheckReadsThePlatformAServiceDeclares
 $ stackmon enroll ROOT/srv/declared
 --- stdout ---

@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/BurntSushi/toml"
+	"github.com/google/go-containerregistry/pkg/name"
 )
 
 // DefaultConcurrency is the number of simultaneous registry probes.
@@ -56,13 +59,18 @@ type rawConfig struct {
 }
 
 // Image returns the override for one image in one stack, or the zero value if
-// none is configured.
+// none is configured. repo is a repository name, including its registry when
+// it is outside Docker Hub; it follows the same conventions as image refs.
 func (c Config) Image(stack, repo string) ImageConfig {
 	s, ok := c.Stacks[stack]
 	if !ok {
 		return ImageConfig{}
 	}
-	return s.Images[repo]
+	parsed, err := name.NewRepository(repo)
+	if err != nil {
+		return ImageConfig{}
+	}
+	return s.Images[parsed.Name()]
 }
 
 // DefaultPath is ~/.config/stackmon/config.toml, honouring XDG_CONFIG_HOME.
@@ -96,6 +104,29 @@ func Load(path string) (Config, error) {
 			return Config{}, fmt.Errorf("config: concurrency must be positive, got %d", *raw.Concurrency)
 		}
 		concurrency = *raw.Concurrency
+	}
+
+	// Normalize once at load time, rejecting ambiguous aliases before any command
+	// can perform I/O. Sorted traversal also makes errors independent of map order.
+	for _, stack := range slices.Sorted(maps.Keys(raw.Stacks)) {
+		st := raw.Stacks[stack]
+		images := make(map[string]ImageConfig, len(st.Images))
+		originals := make(map[string]string, len(st.Images))
+		for _, key := range slices.Sorted(maps.Keys(st.Images)) {
+			repo, err := name.NewRepository(key)
+			if err != nil {
+				return Config{}, fmt.Errorf("config: stack %q image key %q: %w", stack, key, err)
+			}
+			canonical := repo.Name()
+			value := st.Images[key]
+			if previous, exists := images[canonical]; exists && previous != value {
+				return Config{}, fmt.Errorf("config: stack %q image keys %q and %q conflict for %q; use one key or identical repo and constraint values", stack, originals[canonical], key, canonical)
+			}
+			images[canonical] = value
+			originals[canonical] = key
+		}
+		st.Images = images
+		raw.Stacks[stack] = st
 	}
 
 	return Config{

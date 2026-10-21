@@ -114,7 +114,7 @@ func TestShowFallsBackToAConfiguredReleaseRepository(t *testing.T) {
 	e.push("acme", "1.0.0", image{Version: "1.0.0", Source: "https://gitlab.com/e2e/acme"})
 	e.push("acme", "1.1.0", image{Version: "1.1.0", Source: "https://gitlab.com/e2e/acme"})
 	e.gh.publish("e2e/acme", ghRelease{Tag: "v1.1.0", Body: "From the configured repository."})
-	e.config("[stacks.demo.images.acme]\nrepo = \"e2e/acme\"\n")
+	e.config(fmt.Sprintf("[stacks.demo.images.%q]\nrepo = \"e2e/acme\"\n", e.host+"/acme"))
 	e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("acme", "1.0.0")))
 
 	got := e.run("show", "demo")
