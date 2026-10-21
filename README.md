@@ -79,7 +79,7 @@ go install github.com/gvwalker/stackmon/cmd/stackmon@latest
    stackmon show traefik
    ```
 
-The inventory is stored at `~/.local/state/stackmon/inventory.json`. Treat it as machine-owned: use `enroll` and `unenroll` instead of editing it.
+The inventory is stored at `~/.local/state/stackmon/inventory.json`. Treat it as machine-owned: use `enroll` and `unenroll` instead of editing it. Beside it sits `inventory.json.lock`, the lock that serialises the commands that change the inventory: two `enroll`s, or an `enroll` and an `inventory set-project`, run at the same time both land, because each change holds the lock for as long as it takes to read the inventory, change it, and write it back. The lock file is an implementation detail and can be left alone.
 
 ## Commands
 

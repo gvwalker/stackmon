@@ -83,17 +83,16 @@ func newEnrollCmd() *cobra.Command {
 				}
 			}
 
-			inv, path, err := loadInventory()
+			path, err := inventoryPath()
 			if err != nil {
 				return err
 			}
 			if name == "" {
 				name = defaultName
 			}
-			if err := inv.Add(inventory.Stack{Name: name, Dir: dir, File: file, Project: bound, Enrolled: time.Now().UTC()}); err != nil {
-				return err
-			}
-			if err := inventory.Save(path, inv); err != nil {
+			if err := inventory.Update(path, func(inv *inventory.Inventory) error {
+				return inv.Add(inventory.Stack{Name: name, Dir: dir, File: file, Project: bound, Enrolled: time.Now().UTC()})
+			}); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "enrolled %s (%s/%s)\n", name, dir, file)
@@ -115,14 +114,13 @@ func newUnenrollCmd() *cobra.Command {
 		Short: "Remove a stack from the inventory",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			inv, path, err := loadInventory()
+			path, err := inventoryPath()
 			if err != nil {
 				return err
 			}
-			if err := inv.Remove(args[0]); err != nil {
-				return err
-			}
-			if err := inventory.Save(path, inv); err != nil {
+			if err := inventory.Update(path, func(inv *inventory.Inventory) error {
+				return inv.Remove(args[0])
+			}); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "unenrolled %s\n", args[0])
@@ -191,7 +189,7 @@ func newInventoryCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			inv, path, err := loadInventory()
+			path, err := inventoryPath()
 			if err != nil {
 				return err
 			}
@@ -202,10 +200,9 @@ func newInventoryCmd() *cobra.Command {
 					return err
 				}
 			}
-			if err := inv.SetProject(args[0], project); err != nil {
-				return err
-			}
-			if err := inventory.Save(path, inv); err != nil {
+			if err := inventory.Update(path, func(inv *inventory.Inventory) error {
+				return inv.SetProject(args[0], project)
+			}); err != nil {
 				return err
 			}
 			if clearBinding {

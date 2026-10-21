@@ -1779,6 +1779,126 @@ $ stackmon check --json
   good         web        1.0.0      update-available    -> 1.1.0 (minor)
 --- docker available: true ---
 
+### TestConcurrentEnrollmentsBothSurvive
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestConcurrentEnrollmentsBothSurvive
+$ stackmon enroll ROOT/srv/beta
+--- stdout ---
+enrolled beta (ROOT/srv/beta/compose.yaml)
+--- exit 0 ---
+### TestConcurrentEnrollmentsBothSurvive
+inventory: {"version":1,"stacks":[{"name":"alpha","dir":"ROOT/srv/alpha","file":"compose.yaml","enrolled":"TIME"},{"name":"beta","dir":"ROOT/srv/beta","file":"compose.yaml","enrolled":"TIME"}]}
+
+### TestSimultaneousDuplicateEnrollmentCannotBothSucceed
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestSimultaneousDuplicateEnrollmentCannotBothSucceed
+$ stackmon enroll ROOT/srv/alpha
+--- stderr ---
+error: inventory: "alpha" is already enrolled from ROOT/srv/alpha; pass --name to choose a different name
+--- exit 1 ---
+### TestSimultaneousDuplicateEnrollmentCannotBothSucceed
+inventory: {"version":1,"stacks":[{"name":"alpha","dir":"ROOT/srv/alpha","file":"compose.yaml","enrolled":"TIME"}]}
+
+### TestEnrollmentAndBindingDoNotDiscardEachOther
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestEnrollmentAndBindingDoNotDiscardEachOther
+$ stackmon enroll ROOT/srv/beta
+--- stdout ---
+enrolled beta (ROOT/srv/beta/compose.yaml)
+--- exit 0 ---
+
+### TestEnrollmentAndBindingDoNotDiscardEachOther
+$ stackmon inventory set-project alpha prod
+--- stdout ---
+bound alpha to Compose project prod
+--- exit 0 ---
+### TestEnrollmentAndBindingDoNotDiscardEachOther
+inventory: {"version":1,"stacks":[{"name":"alpha","dir":"ROOT/srv/alpha","file":"compose.yaml","project":"prod","enrolled":"TIME"},{"name":"beta","dir":"ROOT/srv/beta","file":"compose.yaml","enrolled":"TIME"}]}
+
+### TestEnrollmentAndUnenrollmentDoNotDiscardEachOther
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestEnrollmentAndUnenrollmentDoNotDiscardEachOther
+$ stackmon enroll ROOT/srv/beta
+--- stdout ---
+enrolled beta (ROOT/srv/beta/compose.yaml)
+--- exit 0 ---
+
+### TestEnrollmentAndUnenrollmentDoNotDiscardEachOther
+$ stackmon unenroll alpha
+--- stdout ---
+unenrolled alpha
+--- exit 0 ---
+### TestEnrollmentAndUnenrollmentDoNotDiscardEachOther
+inventory: {"version":1,"stacks":[{"name":"beta","dir":"ROOT/srv/beta","file":"compose.yaml","enrolled":"TIME"}]}
+
+### TestARefusedChangeLeavesTheInventoryAloneAndReleasesTheLock
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestARefusedChangeLeavesTheInventoryAloneAndReleasesTheLock
+$ stackmon enroll ROOT/srv/alpha
+--- stderr ---
+error: inventory: "alpha" is already enrolled from ROOT/srv/alpha; pass --name to choose a different name
+--- exit 1 ---
+
+### TestARefusedChangeLeavesTheInventoryAloneAndReleasesTheLock
+$ stackmon enroll ROOT/srv/beta
+--- stdout ---
+enrolled beta (ROOT/srv/beta/compose.yaml)
+--- exit 0 ---
+### TestARefusedChangeLeavesTheInventoryAloneAndReleasesTheLock
+inventory: {"version":1,"stacks":[{"name":"alpha","dir":"ROOT/srv/alpha","file":"compose.yaml","enrolled":"TIME"},{"name":"beta","dir":"ROOT/srv/beta","file":"compose.yaml","enrolled":"TIME"}]}
+
+### TestAFailedWriteLeavesTheInventoryAloneAndReleasesTheLock
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestAFailedWriteLeavesTheInventoryAloneAndReleasesTheLock
+$ stackmon enroll ROOT/srv/beta
+--- stderr ---
+error: inventory: creating temp file: open HOME/.local/state/stackmon/.inventory-TEMP.json: permission denied
+--- exit 1 ---
+
+### TestAFailedWriteLeavesTheInventoryAloneAndReleasesTheLock
+$ stackmon enroll ROOT/srv/beta
+--- stdout ---
+enrolled beta (ROOT/srv/beta/compose.yaml)
+--- exit 0 ---
+### TestAFailedWriteLeavesTheInventoryAloneAndReleasesTheLock
+inventory: {"version":1,"stacks":[{"name":"alpha","dir":"ROOT/srv/alpha","file":"compose.yaml","enrolled":"TIME"},{"name":"beta","dir":"ROOT/srv/beta","file":"compose.yaml","enrolled":"TIME"}]}
+
+### TestTheInventoryLockIsReleasedWhenTheProcessDies
+$ stackmon enroll ROOT/srv/alpha
+--- exit -1 ---
+
+### TestTheInventoryLockIsReleasedWhenTheProcessDies
+$ stackmon enroll ROOT/srv/beta
+--- stdout ---
+enrolled beta (ROOT/srv/beta/compose.yaml)
+--- exit 0 ---
+### TestTheInventoryLockIsReleasedWhenTheProcessDies
+inventory: {"version":1,"stacks":[{"name":"beta","dir":"ROOT/srv/beta","file":"compose.yaml","enrolled":"TIME"}]}
+
 ### TestCheckReadsThePlatformAServiceDeclares
 $ stackmon enroll ROOT/srv/declared
 --- stdout ---

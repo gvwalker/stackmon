@@ -23,7 +23,7 @@ The explicit act of adding a stack to the Inventory. Monitoring never begins imp
 _Avoid_: Registration, tracking.
 
 **Inventory**:
-The on-disk, machine-owned store of enrolled stacks (`~/.local/state/stackmon/inventory.json`). Edited only via `enroll`/`unenroll`, never by hand.
+The on-disk, machine-owned store of enrolled stacks (`~/.local/state/stackmon/inventory.json`). Edited only via `enroll`/`unenroll`, never by hand. Changed by one command at a time: a command that changes it holds the inventory's lock from reading it to writing it back, so two commands running at once both land rather than one overwriting the other.
 _Avoid_: Registry (reserve for the container registry), database.
 
 **Root**:
