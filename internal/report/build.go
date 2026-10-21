@@ -325,6 +325,10 @@ func resolveIdentity(st compose.Stack, containers []local.Container, dockerUp bo
 
 	bind := fmt.Sprintf("stackmon inventory set-project %s <project>", st.Name)
 	switch id.Reason {
+	case local.ReasonConflicting:
+		return identity{note: fmt.Sprintf(
+			"conflicting path labels in Compose projects (%s): containers disagree about whether they run %s; bind the project meant with %q",
+			strings.Join(id.Candidates, ", "), st.Path(), bind)}
 	case local.ReasonAmbiguous:
 		return identity{note: fmt.Sprintf(
 			"ambiguous: %s all run %s; bind the one meant with %q",
