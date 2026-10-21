@@ -44,6 +44,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -82,7 +83,9 @@ func TestMain(m *testing.M) {
 }
 
 func build(out, version string) {
-	args := []string{"build", "-o", out}
+	// stackmon_e2e compiles the deterministic after-validation barrier into the
+	// test binary only; a shipped binary contains no test hook.
+	args := []string{"build", "-tags", "stackmon_e2e", "-o", out}
 	if version != "" {
 		args = append(args, "-ldflags", "-X main.version="+version)
 	}
@@ -455,10 +458,14 @@ type pending struct {
 }
 
 // start runs the binary in the background. The caller must wait on it.
-func (e *env) start(args ...string) *pending {
+func (e *env) start(args ...string) *pending { return e.startWith(nil, args...) }
+
+// startWith runs the binary in the background with env overrides that apply to
+// this process alone, so two concurrent runs can sit at different points.
+func (e *env) startWith(over map[string]string, args ...string) *pending {
 	e.t.Helper()
 	p := &pending{e: e, args: args, done: make(chan result, 1)}
-	go func() { p.done <- e.exec(devBinary, args...) }()
+	go func() { p.done <- e.execWith(over, devBinary, args...) }()
 	return p
 }
 
@@ -483,10 +490,12 @@ func (e *env) runBinary(bin string, args ...string) result {
 
 // exec runs the binary without recording. Scenarios use it for the verbose
 // --json form, whose meaning is captured by the summary they record instead.
-func (e *env) exec(bin string, args ...string) result {
+func (e *env) exec(bin string, args ...string) result { return e.execWith(nil, bin, args...) }
+
+func (e *env) execWith(over map[string]string, bin string, args ...string) result {
 	e.t.Helper()
 	cmd := exec.Command(bin, args...)
-	cmd.Env = e.environ()
+	cmd.Env = e.environ(over)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 
@@ -520,10 +529,106 @@ func (e *env) note(format string, args ...any) {
 	fmt.Fprintf(&transcript, "### %s\n%s\n", e.t.Name(), fmt.Sprintf(format, args...))
 }
 
+// waitFor polls cond until it is true. It coordinates on a fact the server has
+// already observed -- a request count -- not on elapsed time.
+func (e *env) waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// validateBarrier is the pair of FIFOs behind STACKMON_E2E_AFTER_VALIDATE. The
+// test binary writes the compose path once it has read and validated the
+// source, then blocks until the scenario writes a release byte. That parks a
+// bump exactly in the validation-to-replacement window, deterministically.
+// Announce and release are separate pipes so the binary cannot consume its own
+// announcement while waiting.
+type validateBarrier struct {
+	announce *os.File
+	releaseF *os.File
+	env      map[string]string
+}
+
+func (e *env) afterValidateBarrier() *validateBarrier {
+	e.t.Helper()
+	path := filepath.Join(e.root, "after-validate.fifo")
+	if err := unix.Mkfifo(path, 0o600); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := unix.Mkfifo(path+".release", 0o600); err != nil {
+		e.t.Fatal(err)
+	}
+	announce, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	releaseF, err := os.OpenFile(path+".release", os.O_RDWR, 0)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	// A failed scenario must not leave a parked binary behind.
+	e.t.Cleanup(func() {
+		releaseF.Write(make([]byte, 8))
+		releaseF.Close()
+		announce.Close()
+	})
+	return &validateBarrier{
+		announce: announce,
+		releaseF: releaseF,
+		env:      map[string]string{"STACKMON_E2E_AFTER_VALIDATE": path},
+	}
+}
+
+// wait blocks until a binary announces it has validated the source, and fails
+// the scenario rather than hanging if it never does.
+func (b *validateBarrier) wait(t *testing.T) {
+	t.Helper()
+	got := make(chan string, 1)
+	go func() {
+		var line []byte
+		one := make([]byte, 1)
+		for {
+			n, err := b.announce.Read(one)
+			if n == 1 {
+				if one[0] == '\n' {
+					got <- string(line)
+					return
+				}
+				line = append(line, one[0])
+			}
+			if err != nil {
+				got <- ""
+				return
+			}
+		}
+	}()
+	select {
+	case line := <-got:
+		if line == "" {
+			t.Fatal("after-validate barrier closed before announcing a compose file")
+		}
+	case <-time.After(60 * time.Second):
+		t.Fatal("stackmon never reached the after-validate barrier")
+	}
+}
+
+// release lets every parked binary continue.
+func (b *validateBarrier) release(t *testing.T) {
+	t.Helper()
+	if _, err := b.releaseF.Write(make([]byte, 8)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // environ builds the child's environment, replacing rather than appending:
 // exec passes duplicate keys through, and which one the child reads is not
 // something to depend on.
-func (e *env) environ() []string {
+func (e *env) environ(over map[string]string) []string {
 	set := map[string]string{
 		"HOME":                   e.home(),
 		"XDG_CONFIG_HOME":        filepath.Join(e.home(), ".config"),
@@ -533,6 +638,9 @@ func (e *env) environ() []string {
 		"NO_PROXY":               "127.0.0.1,localhost",
 	}
 	for k, v := range e.over {
+		set[k] = v
+	}
+	for k, v := range over {
 		set[k] = v
 	}
 	out := make([]string, 0, len(set))

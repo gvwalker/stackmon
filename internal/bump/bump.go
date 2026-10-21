@@ -4,6 +4,7 @@
 package bump
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -171,8 +172,16 @@ func validateRange(c Change, dataLen int) error {
 	return nil
 }
 
-// Apply writes the change, aborting if the file no longer matches what was
-// observed, so a concurrent edit cannot be clobbered.
+// Apply writes the change, refusing if the file no longer matches what was
+// observed. One stackmon writer at a time may run the transaction: the target
+// lock is held from the read through validation to the replacement, so a
+// second bump waits rather than planning against bytes that are about to move.
+//
+// The limit is arbitrary editors that ignore the lock. The source is rechecked
+// -- identity and full contents -- immediately before the rename, but a check
+// followed by a rename is not a compare-and-swap: an edit landing between that
+// final read and the rename can still be lost. Cooperating stackmon writers
+// are serialised; nothing can make an uncooperating writer atomic with us.
 func Apply(c Change) error { return ApplyAll([]Change{c}) }
 
 // ApplyAll writes changes after checking every source range against the same
@@ -180,6 +189,10 @@ func Apply(c Change) error { return ApplyAll([]Change{c}) }
 // towards its beginning, so a longer earlier pin cannot invalidate a later
 // service's offsets. Nothing is written for a file until all of that file's
 // changes pass the stale-file checks.
+//
+// Each file is read, validated, and replaced while holding that file's
+// cooperating-writer lock; the lock is released only after the rename, or
+// after a refusal. See Apply for the one window that remains.
 func ApplyAll(changes []Change) error {
 	byPath := make(map[string][]Change)
 	for _, c := range changes {
@@ -213,6 +226,12 @@ func fileInfo(path string) (os.FileInfo, error) {
 }
 
 func applyFile(path string, changes []Change) error {
+	unlock, err := lockTarget(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	info, err := fileInfo(path)
 	if err != nil {
 		return err
@@ -242,6 +261,8 @@ func applyFile(path string, changes []Change) error {
 		out = append(out[:c.Offset], append([]byte(c.New), out[c.Offset+c.Length:]...)...)
 	}
 
+	afterValidate(path)
+
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".stackmon-*.yml")
 	if err != nil {
@@ -264,8 +285,37 @@ func applyFile(path string, changes []Change) error {
 	if err := os.Chmod(tmpName, info.Mode().Perm()); err != nil {
 		return fmt.Errorf("bump: preserving mode: %w", err)
 	}
+	// Recheck the source as late as possible, after the replacement is fully
+	// prepared. The lock excludes other stackmon writers; this catches an
+	// outside edit that landed during the transaction. It is not a
+	// compare-and-swap -- see Apply -- but it keeps the stale replacement from
+	// being renamed over the edit in every window but the last instant.
+	if err := recheckSource(path, info, data); err != nil {
+		return err
+	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("bump: renaming into place: %w", err)
+	}
+	return nil
+}
+
+// recheckSource refuses to replace path unless it is still the same file, with
+// the same bytes, that was read and validated. Callers hold the target lock, so
+// a difference is an outside writer rather than another stackmon run.
+func recheckSource(path string, info os.FileInfo, data []byte) error {
+	current, err := fileInfo(path)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, current) {
+		return fmt.Errorf("bump: %s was replaced while it was being rewritten; the current file was kept; re-run check", path)
+	}
+	now, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("bump: reading %s: %w", path, err)
+	}
+	if !bytes.Equal(now, data) {
+		return fmt.Errorf("bump: %s changed while it was being rewritten; the edit was kept and nothing was overwritten; re-run check", path)
 	}
 	return nil
 }
