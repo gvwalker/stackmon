@@ -2369,6 +2369,882 @@ demo
 Completion ended with directive: ShellCompDirectiveNoFileComp
 --- exit 0 ---
 
+### TestProjectIdentityAggregatesEveryContainerOrder/missing-and-matching
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/missing-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/missing-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/missing-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/missing-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/missing-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/missing-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/stale-and-matching
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      conflicting path labels in Compose projects (production): containers disagree about whether they run ROOT/srv/demo/compose.yaml; bind the project meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 2/2 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 2 replicas, 2 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (matched from its compose file)
+
+  replicas (2)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-identify
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-identify
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (production) record no working directory or config file to match it against; bind it with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-identify
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (production) record no working directory or config file to match it against; bind it with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-identify
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (production) record no working directory or config file to match it against; bind it with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-identify
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (production) record no working directory or config file to match it against; bind it with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-identify
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (production) record no working directory or config file to match it against; bind it with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-cannot-identify
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (production) record no working directory or config file to match it against; bind it with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-only
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-only
+$ stackmon check --json
+  demo         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-only
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   api      1.0.0    not-running  no running container
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-only
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    not-running
+  platform:  linux/amd64
+  version:   1.0.0
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-only
+$ stackmon check --json
+  demo         api        1.0.0      not-running        
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-only
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   api      1.0.0    not-running  no running container
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/oneoff-only
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    not-running
+  platform:  linux/amd64
+  version:   1.0.0
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon inventory set-project demo production
+--- stdout ---
+bound demo to Compose project production
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 3/3 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 3 replicas, 3 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (bound by enrollment)
+
+  replicas (3)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 3/3 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 3 replicas, 3 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (bound by enrollment)
+
+  replicas (3)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 3/3 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 3 replicas, 3 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (bound by enrollment)
+
+  replicas (3)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 3/3 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 3 replicas, 3 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (bound by enrollment)
+
+  replicas (3)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 3/3 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 3 replicas, 3 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (bound by enrollment)
+
+  replicas (3)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check --json
+  demo         api        1.0.0      current             [replicas 3/3 match, 0 differ, 0 unknown of aba23cf2b248]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    current  of 3 replicas, 3 match sha256:aba23cf2b248
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/binding-overrides-conflict
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    current
+  platform:  linux/amd64
+  version:   1.0.0
+  project:   production (bound by enrollment)
+
+  replicas (3)
+    compared against sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+    match
+      digest:  sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check --json
+  demo         api        1.0.0      unknown             [ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"]
+--- docker available: true ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS   DETAIL
+demo   api      1.0.0    unknown  ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+--- exit 0 ---
+
+### TestProjectIdentityAggregatesEveryContainerOrder/multiple-projects
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  status:    unknown
+  platform:  linux/amd64
+  version:   1.0.0
+  note:      ambiguous: production and secondary all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+
+--- exit 0 ---
+
 ### TestMixedReplicasReportTheSameVerdictInEitherOrder
 $ stackmon enroll ROOT/srv/demo
 --- stdout ---

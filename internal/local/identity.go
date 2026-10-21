@@ -29,8 +29,8 @@ type Identity struct {
 	// Empty when the identity is resolved, and when nothing runs this
 	// stack's compose file: that is absence, not doubt.
 	Reason string
-	// Candidates lists the project names that matched, or every project the
-	// daemon reported when nothing could be verified. Sorted.
+	// Candidates lists the matching or conflicting project names, or every
+	// relevant project when nothing could be verified. Sorted.
 	Candidates []string
 }
 
@@ -41,6 +41,9 @@ const (
 	// ReasonUnverifiable means no running project carries the path labels
 	// identity would have to come from.
 	ReasonUnverifiable = "unverifiable"
+	// ReasonConflicting means a project has both matching and nonmatching
+	// concrete path evidence, so it cannot safely identify this stack.
+	ReasonConflicting = "conflicting"
 )
 
 // ResolveProject establishes which Compose project runs the compose file at
@@ -57,6 +60,8 @@ const (
 // working directory. Paths are compared as paths: a substring match would let
 // /srv/cache match /srv/cache-backup, which is a different stack. Several
 // matching projects are ambiguous, never a reason to take the first.
+// All non-one-off containers contribute evidence. If a project has both
+// matching and nonmatching path evidence, identity remains unresolved.
 func ResolveProject(cs []Container, boundProject, dir, file string) Identity {
 	if boundProject != "" {
 		return Identity{Project: boundProject, Bound: true, Resolved: true}
@@ -70,30 +75,48 @@ func ResolveProject(cs []Container, boundProject, dir, file string) Identity {
 		wantFile = filepath.Clean(file)
 	}
 
-	var matches []string
+	// Missing labels carry no evidence either way. Collect every relevant
+	// container before deciding: Docker's response order is not identity.
+	type evidence struct{ matching, nonmatching bool }
+	projects := map[string]evidence{}
 	seen := map[string]bool{}
-	labelled := 0
 	for _, c := range cs {
-		if c.Project == "" || seen[c.Project] {
+		if c.Project == "" || c.OneOff {
 			continue
 		}
 		seen[c.Project] = true
 		if !identifiable(c) {
 			continue
 		}
-		labelled++
+		e := projects[c.Project]
 		if c.servesPath(wantDir, wantFile) {
-			matches = append(matches, c.Project)
+			e.matching = true
+		} else {
+			e.nonmatching = true
+		}
+		projects[c.Project] = e
+	}
+	var matches, conflicts []string
+	for project, e := range projects {
+		if e.matching {
+			if e.nonmatching {
+				conflicts = append(conflicts, project)
+			} else {
+				matches = append(matches, project)
+			}
 		}
 	}
 	sort.Strings(matches)
+	sort.Strings(conflicts)
 
 	switch {
+	case len(conflicts) > 0:
+		return Identity{Reason: ReasonConflicting, Candidates: conflicts}
 	case len(matches) == 1:
 		return Identity{Project: matches[0], Resolved: true}
 	case len(matches) > 1:
 		return Identity{Reason: ReasonAmbiguous, Candidates: matches}
-	case labelled == 0 && len(seen) > 0:
+	case len(projects) == 0 && len(seen) > 0:
 		// Projects are running, but none of them says which directory it was
 		// started from, so there is nothing to match this stack against.
 		// Guessing from the display name here is exactly the bug this

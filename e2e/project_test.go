@@ -319,3 +319,79 @@ func TestBindingCommandsDocumentThemselves(t *testing.T) {
 	assertCode(t, "complete projects for set-project", projects.code, 0, projects)
 	assertContains(t, "complete projects for set-project", projects.stdout, "demo", ":4")
 }
+
+// Every permutation reaches the real CLI and records both its report and
+// identity diagnostic. Missing labels are neutral; contradictory concrete
+// evidence is unresolved; compose-run containers supply no evidence.
+func TestProjectIdentityAggregatesEveryContainerOrder(t *testing.T) {
+	for _, scenario := range []struct {
+		name                  string
+		kinds                 []string
+		status, project, note string
+		bound                 bool
+	}{
+		{"missing-and-matching", []string{"missing", "matching"}, "current", "production", "", false},
+		{"stale-and-matching", []string{"stale", "matching", "missing"}, "unknown", "", "conflicting", false},
+		{"oneoff-cannot-conflict", []string{"matching", "oneoff-stale", "missing"}, "current", "production", "", false},
+		{"oneoff-cannot-identify", []string{"missing", "oneoff-matching"}, "unknown", "", "cannot tell", false},
+		{"oneoff-only", []string{"oneoff-matching", "oneoff-stale"}, "not-running", "", "", false},
+		{"binding-overrides-conflict", []string{"stale", "matching", "missing"}, "current", "production", "", true},
+		{"multiple-projects", []string{"missing", "matching", "other-project"}, "unknown", "", "ambiguous", false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			e := newEnv(t)
+			digest := e.push("app", "1.0.0", image{})
+			file := e.enrollStack("demo", fmt.Sprintf("services:\n  api:\n    image: %s@%s\n", e.ref("app", "1.0.0"), digest))
+			if scenario.bound {
+				r := e.run("inventory", "set-project", "demo", "production")
+				assertCode(t, "binding", r.code, 0, r)
+			}
+			var cs []container
+			for _, kind := range scenario.kinds {
+				c := container{Project: "production", Service: "api", ImageID: "sha256:local", RepoDigests: []string{"app@" + digest}}
+				switch kind {
+				case "matching", "oneoff-matching", "other-project":
+					c.WorkingDir, c.ConfigFiles = filepath.Dir(file), file
+				case "stale", "oneoff-stale":
+					c.WorkingDir, c.ConfigFiles = "/srv/retired", "/srv/retired/compose.yaml"
+				}
+				c.OneOff = strings.HasPrefix(kind, "oneoff-")
+				if kind == "other-project" {
+					c.Project = "secondary"
+				}
+				cs = append(cs, c)
+			}
+			var firstNote, firstTable, firstDetail string
+			var visit func(int)
+			visit = func(n int) {
+				if n < len(cs) {
+					for i := n; i < len(cs); i++ {
+						cs[n], cs[i] = cs[i], cs[n]
+						visit(n + 1)
+						cs[n], cs[i] = cs[i], cs[n]
+					}
+					return
+				}
+				e.docker.running(cs...)
+				r := e.checkJSON().image(t, "demo", "api")
+				assertEq(t, "status", r.Status, scenario.status)
+				assertEq(t, "project", r.Project, scenario.project)
+				assertEq(t, "binding", r.ProjectBound, scenario.bound)
+				if scenario.note != "" {
+					assertContains(t, "identity note", r.IdentityNote, scenario.note, "set-project")
+				} else {
+					assertEq(t, "identity note", r.IdentityNote, "")
+				}
+				table := e.run("check")
+				detail := e.run("show", "demo")
+				if firstTable == "" {
+					firstNote, firstTable, firstDetail = r.IdentityNote, table.stdout, detail.stdout
+				}
+				assertEq(t, "order-independent note", r.IdentityNote, firstNote)
+				assertEq(t, "order-independent table", table.stdout, firstTable)
+				assertEq(t, "order-independent detail", detail.stdout, firstDetail)
+			}
+			visit(0)
+		})
+	}
+}
