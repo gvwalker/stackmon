@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,6 +18,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/google/go-github/v66/github"
+
+	"github.com/gvwalker/stackmon/internal/ghclient"
 )
 
 // Repo is the stackmon GitHub repository.
@@ -56,23 +57,14 @@ type Client struct {
 	hc *http.Client
 }
 
-// New returns a Client. An empty token means unauthenticated access, which
-// GitHub rate-limits to 60 requests per hour.
+// New returns a Client, configured with the shared GitHub client policy
+// (token, alternate API root, and request budgets). Every release-metadata
+// request it makes is bounded by ghclient.Metadata and every asset download
+// by ghclient.Download -- a stalled server fails the operation inside the
+// budget instead of hanging it. An empty token means unauthenticated
+// access, which GitHub rate-limits to 60 requests per hour.
 func New(token string) *Client {
-	gh := github.NewClient(nil)
-	if token != "" {
-		gh = gh.WithAuthToken(token)
-	}
-	// STACKMON_GITHUB_API names an alternate API root: GitHub Enterprise, a
-	// mirror, or a test fixture. An unusable value is ignored rather than
-	// fatal -- a typo must not make an update check report the running
-	// version as current.
-	if raw := os.Getenv("STACKMON_GITHUB_API"); raw != "" {
-		if u, err := url.Parse(strings.TrimSuffix(raw, "/") + "/"); err == nil {
-			gh.BaseURL = u
-		}
-	}
-	return &Client{gh: gh, hc: http.DefaultClient}
+	return &Client{gh: ghclient.New(token), hc: ghclient.Downloader()}
 }
 
 // Latest returns the newest published release and whether it is newer than
@@ -172,6 +164,9 @@ func (c *Client) Install(ctx context.Context, tag string) error {
 	return install(exe, data)
 }
 
+// fetch downloads one release asset. The client's budget bounds the whole
+// exchange -- headers and every byte of the body -- so a download that
+// stalls fails with the deadline rather than waiting forever.
 func (c *Client) fetch(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

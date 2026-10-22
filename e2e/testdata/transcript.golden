@@ -1476,6 +1476,121 @@ $ stackmon check -c --fail-on-update
 }
 --- exit 2 ---
 
+### TestCheckBoundsAStalledRegistryProbe
+$ stackmon enroll ROOT/srv/fine
+--- stdout ---
+enrolled fine (ROOT/srv/fine/compose.yaml)
+--- exit 0 ---
+
+### TestCheckBoundsAStalledRegistryProbe
+$ stackmon enroll ROOT/srv/hung
+--- stdout ---
+enrolled hung (ROOT/srv/hung/compose.yaml)
+--- exit 0 ---
+
+### TestCheckBoundsAStalledRegistryProbe
+$ stackmon enroll ROOT/srv/trunc
+--- stdout ---
+enrolled trunc (ROOT/srv/trunc/compose.yaml)
+--- exit 0 ---
+
+### TestCheckBoundsAStalledRegistryProbe
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "fine",
+      "service": "api",
+      "status": "not-running",
+      "platform": "linux/amd64",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "hung",
+      "service": "api",
+      "status": "unknown",
+      "platform": "linux/amd64",
+      "version": "",
+      "candidate": "",
+      "error": "registry: fetching REGISTRY/hung:1.0.0: Get \"http://REGISTRY/v2/hung/manifests/1.0.0\": context deadline exceeded",
+      "identity_note": ""
+    },
+    {
+      "stack": "trunc",
+      "service": "api",
+      "status": "unknown",
+      "platform": "linux/amd64",
+      "version": "",
+      "candidate": "",
+      "error": "registry: fetching REGISTRY/trunc:1.0.0: context deadline exceeded",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestCheckBoundsAStalledRegistryProbe
+registry requests: healthy manifests=1 tags=1, stalled-header manifests=1, stalled-body manifests=1
+
+### TestShowBoundsStalledReleaseNotes
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestShowBoundsStalledReleaseNotes
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/hung:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+    no release notes available
+
+demo / web
+  reference: REGISTRY/trunc:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+    no release notes available
+
+--- exit 0 ---
+### TestShowBoundsStalledReleaseNotes
+GitHub requests: stalled-header releases=1, stalled-body releases=1
+
+### TestWhatsNewBoundsAStalledGitHubAPI
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+--- stderr ---
+error: selfupdate: fetching latest release: Get "GITHUB/repos/gvwalker/stackmon/releases/latest": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+--- exit 1 ---
+### TestWhatsNewBoundsAStalledGitHubAPI
+GitHub requests: releases=2
+
+### TestUpdateBoundsAStalledDownload
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: downloading stackmon-linux-amd64: context deadline exceeded (Client.Timeout or context cancellation while reading body)
+--- exit 1 ---
+### TestUpdateBoundsAStalledDownload
+GitHub requests: releases=2 asset=1; installed binary unchanged, no update temporaries remain
+
 ### TestDiscoverFindsStacksBelowConfiguredRoots
 $ stackmon discover
 --- stdout ---
