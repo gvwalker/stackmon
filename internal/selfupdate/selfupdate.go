@@ -75,9 +75,14 @@ func New(token string) *Client {
 // current. current is a build-time version like "v1.2.3"; a version that
 // doesn't parse as semver (e.g. the "dev" build) never counts as newer.
 func (c *Client) Latest(ctx context.Context, current string) (Release, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghclient.Metadata)
+	defer cancel()
 	owner, name, _ := strings.Cut(Repo, "/")
 	r, _, err := c.gh.Repositories.GetLatestRelease(ctx, owner, name)
 	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return Release{}, false, fmt.Errorf("selfupdate: fetching latest release: %w", err)
 	}
 	rel := Release{Tag: r.GetTagName(), Body: r.GetBody(), URL: r.GetHTMLURL()}
@@ -104,6 +109,8 @@ func (c *Client) ByTag(ctx context.Context, tag string) (Release, error) {
 // the token, the STACKMON_GITHUB_API base URL, and the secondary-rate-limit
 // handling all behave exactly as they do for the typed calls.
 func (c *Client) release(ctx context.Context, tag string) (release, error) {
+	ctx, cancel := context.WithTimeout(ctx, ghclient.Metadata)
+	defer cancel()
 	owner, name, _ := strings.Cut(Repo, "/")
 	req, err := c.gh.NewRequest(http.MethodGet,
 		fmt.Sprintf("repos/%s/%s/releases/tags/%s", owner, name, tag), nil)
@@ -112,12 +119,18 @@ func (c *Client) release(ctx context.Context, tag string) (release, error) {
 	}
 	resp, err := c.gh.BareDo(ctx, req)
 	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return release{}, fmt.Errorf("selfupdate: fetching release %s: %w", tag, err)
 	}
 	defer resp.Body.Close()
 
 	var rel release
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		return release{}, fmt.Errorf("selfupdate: reading release %s: %w", tag, err)
 	}
 	return rel, nil
@@ -177,14 +190,22 @@ func (c *Client) Install(ctx context.Context, tag string) error {
 }
 
 // fetch streams one release asset into dst while hashing it. The byte limit
-// bounds fast responses, and the client's time budget bounds stalled ones.
+// bounds fast responses, and one context budget bounds retries and body reads.
 func (c *Client) fetch(ctx context.Context, url string, dst io.Writer) (string, error) {
+	// A wrapped transport makes http.Client also use legacy cancellation.
+	// Keep the operation's context authoritative through body consumption so
+	// a timeout retains its deadline cause instead of becoming request canceled.
+	ctx, cancel := context.WithTimeout(ctx, ghclient.Download)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -202,6 +223,9 @@ func (c *Client) fetch(ctx context.Context, url string, dst io.Writer) (string, 
 		return "", fmt.Errorf("download exceeds maximum asset size of %d bytes", maxAssetSize)
 	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		return "", err
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil

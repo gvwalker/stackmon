@@ -12,6 +12,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+
+	"github.com/gvwalker/stackmon/internal/readretry"
 )
 
 // DefaultPlatform is the platform inspected for a Service that declares none.
@@ -69,9 +71,8 @@ func (i Image) Source() string { return i.Label(LabelSource) }
 // reads along the way: a registry that accepts a request and then stalls is
 // as unreachable as one that refuses it, and must end as a bounded failure
 // rather than a run that hangs. It is a ceiling, not an extension: an
-// earlier caller deadline or cancellation always wins. The library's own
-// retries run inside the same budget -- once the deadline passes, every
-// further attempt fails immediately, so backoff sleeps are the only spillover.
+// earlier caller deadline or cancellation always wins. Shared transport
+// retries and backoff run inside the same budget, with no sleep spillover.
 var probeBudget = 30 * time.Second
 
 // Client fetches image metadata and tag lists.
@@ -89,6 +90,11 @@ func (c *Client) options(ctx context.Context) []remote.Option {
 	return []remote.Option{
 		remote.WithContext(ctx),
 		remote.WithAuthFromKeychain(c.keychain),
+		remote.WithTransport(readretry.Transport(remote.DefaultTransport)),
+		// The shared transport owns retries. Disable both of the library's
+		// retry decisions so attempts cannot multiply or consume error bodies.
+		remote.WithRetryPredicate(func(error) bool { return false }),
+		remote.WithRetryStatusCodes(),
 	}
 }
 

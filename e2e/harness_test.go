@@ -250,7 +250,8 @@ func (e *env) composeFileOf(project string) (string, bool) {
 // scenario can make the registry misbehave on purpose: blocked paths (a
 // failure answer) and stalls (no answer at all).
 type requestLog struct {
-	next http.Handler
+	faults httpFaults
+	next   http.Handler
 
 	mu      sync.Mutex
 	paths   []string
@@ -264,6 +265,9 @@ type requestLog struct {
 }
 
 func (l *requestLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if l.faults.serve(w, r) {
+		return
+	}
 	l.mu.Lock()
 	l.paths = append(l.paths, r.Method+" "+r.URL.Path)
 	gate := l.gateFor(r.URL.Path)
@@ -1678,6 +1682,7 @@ type ghRelease struct {
 }
 
 type fakeGitHub struct {
+	faults httpFaults
 	server *httptest.Server
 	mu     sync.Mutex
 	// releases maps "owner/name" to that repository's releases, newest
@@ -1780,6 +1785,9 @@ func (g *fakeGitHub) count(prefix string) int {
 }
 
 func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
+	if g.faults.serve(w, r) {
+		return
+	}
 	g.mu.Lock()
 	g.hits[r.URL.Path]++
 	if mode, stalled := g.stallLocked(r.URL.Path); stalled {
