@@ -69,8 +69,10 @@ The publishing job preserves release tools from the workflow run's SHA, then
 checks out the plan SHA, verifies hashes/repository/baseline,
 runs release-tool scenarios, formatting, vet and uncached race tests, and builds
 the three supported binaries with the planned version. CI and release runs
-retain both verification transcripts, including on failure. The subprocess
-race-instrumentation limitation remains tracked by #48.
+retain the application and release-tool transcripts plus
+`e2e/out/race-coverage.txt`, including on failure. Race tests instrument both E2E
+CLI variants and reject child race reports and race failure exits; see
+[e2e/RACE-TESTING.md](../../e2e/RACE-TESTING.md) for repeatable verification.
 
 Publication validates the local checksum file and exact asset set before any
 tag operation. It checks an existing remote tag's peeled commit SHA and never

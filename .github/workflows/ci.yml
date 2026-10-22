@@ -43,7 +43,7 @@ jobs:
       - name: Install syscall tracing for update durability scenarios
         run: sudo apt-get update && sudo apt-get install -y strace
 
-      - name: Run tests with race detector
+      - name: Run harness and CLI tests with race detector
         env:
           STACKMON_TEST_DURABILITY: '1'
         run: go test -v -race ./... -count=1
@@ -56,6 +56,7 @@ jobs:
           overwrite: true
           path: |
             e2e/out/transcript.txt
+            e2e/out/race-coverage.txt
             e2e/out/update-durability.txt
             scripts/out/release-transcript.txt
 

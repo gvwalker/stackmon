@@ -308,12 +308,14 @@ A Docker socket is optional. If it is absent or unreadable, stackmon produces a 
 Requirements: Go 1.27. The test suite is the `e2e` package, and it is hermetic: it runs the built binary against a real in-memory registry, a real Docker Engine API on a unix socket, and a real GitHub API, all started by the test. No live registry, daemon, or network access is needed.
 
 ```sh
-go test -race ./...
+go test -race ./... -count=1
 go vet ./...
 go build ./cmd/stackmon
 ```
 
 Each run writes its full transcript to `e2e/out/transcript.txt` and compares it against `e2e/testdata/transcript.golden`, so a behavioural change shows up as a reviewable diff. Regenerate the golden with `UPDATE_GOLDEN=1 go test ./e2e/` after confirming the change is intended.
+
+`go test -race` also builds both E2E CLI variants with `-race`; child race reports or race failure exits fail the scenario even when a CLI error was expected. Ordinary `go test ./... -count=1` keeps non-race CLI builds. Build metadata and harness rejection checks write `e2e/out/race-coverage.txt`; see [E2E race verification](e2e/RACE-TESTING.md) for regeneration details. CI and release gates retain this artifact alongside the application transcript.
 
 GitHub Actions runs formatting verification, `go vet ./...`, and `go test -v -race ./...` for pull requests and pushes to `main`.
 
