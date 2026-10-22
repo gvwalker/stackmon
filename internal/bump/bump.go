@@ -45,6 +45,14 @@ func Plan(st compose.Stack, svc compose.Service, img report.Image) (Change, erro
 func PlanWithOptions(st compose.Stack, svc compose.Service, img report.Image, opts Options) (Change, error) {
 	ref := svc.Ref
 
+	// A declaration the service does not own -- one it inherits from an
+	// anchor or from another service, or one another service also uses --
+	// has no bytes of its own to rewrite. Refusing it is the point: the
+	// alternative would change a consumer the user did not select.
+	if !svc.Origin.Rewritable() {
+		return Change{}, fmt.Errorf("bump: %s/%s: %s", st.Name, svc.Name, reason(svc.Origin))
+	}
+
 	if ref.Interpolated {
 		return Change{}, fmt.Errorf(
 			"bump: %s/%s is set from ${%s}; edit the .env file in %s rather than the compose file",
@@ -128,6 +136,25 @@ func PlanWithOptions(st compose.Stack, svc compose.Service, img report.Image, op
 		Old:    ref.Raw,
 		New:    next,
 	}, nil
+}
+
+// reason explains why an image of this origin is not a Pin bump may
+// rewrite.
+func reason(o compose.Origin) string {
+	switch o {
+	case compose.OriginShared:
+		return "the image literal is shared with another service; rewriting it would change that service too"
+	case compose.OriginMerge:
+		return "the image is inherited through a YAML merge key; its text lives in an anchor"
+	case compose.OriginAlias:
+		return "the image is an alias of an anchor; its text lives with the anchor"
+	case compose.OriginExtends:
+		return "the image is inherited from another service; its text lives in that service"
+	case compose.OriginExternal:
+		return "the image is declared outside this file; its text lives there"
+	default:
+		return "the image has no literal text of its own to rewrite"
+	}
 }
 
 // rebuild reassembles a reference from its parts.

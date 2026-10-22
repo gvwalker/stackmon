@@ -6,8 +6,28 @@ package report
 import (
 	"time"
 
+	"github.com/gvwalker/stackmon/internal/compose"
 	"github.com/gvwalker/stackmon/internal/imageref"
 	"github.com/gvwalker/stackmon/internal/policy"
+)
+
+// The origins a row's image value can have. They are the compose package's
+// vocabulary, restated here so that a presentation layer need not depend on
+// the parser.
+const (
+	// OriginOwn is a literal in the service's own mapping, used by nobody
+	// else: a Pin bump may rewrite it.
+	OriginOwn = compose.OriginOwn
+	// OriginShared is a literal another service also uses.
+	OriginShared = compose.OriginShared
+	// OriginMerge is a value inherited through a YAML merge key.
+	OriginMerge = compose.OriginMerge
+	// OriginAlias is a value that is an alias of an anchor.
+	OriginAlias = compose.OriginAlias
+	// OriginExtends is a value inherited from another service.
+	OriginExtends = compose.OriginExtends
+	// OriginExternal is a value declared outside the file.
+	OriginExternal = compose.OriginExternal
 )
 
 // Status is the single headline verdict for an image.
@@ -133,6 +153,12 @@ type Image struct {
 	// Status is the headline verdict; Statuses lists everything that applied.
 	Status   Status   `json:"status"`
 	Statuses []Status `json:"statuses,omitempty"`
+	// Origin says where the service's image value is written: a literal of
+	// its own ("own"), a literal another service also uses ("shared"), or a
+	// value it inherits ("merge", "alias", "extends", "external"). Only an
+	// "own" value is a Pin bump may rewrite, so this is what tells a reader
+	// whether the row can be acted on.
+	Origin compose.Origin `json:"origin"`
 	// Err explains a StatusUnknown row.
 	Err string `json:"error,omitempty"`
 	// RunningError is set when the daemon's socket was present but the

@@ -1,6 +1,8 @@
 // Package compose parses a stack's compose file into services and image
 // references, recording the byte range of each image value so that bump can
-// rewrite it without reserialising the document.
+// rewrite it without reserialising the document. An image a service inherits
+// -- from an anchor, or from another service -- is reported like any other,
+// but has no bytes of its own to rewrite.
 package compose
 
 import (
@@ -40,6 +42,37 @@ func ValidProjectName(name string) error {
 	return nil
 }
 
+// Origin says where a service's image value is written, which is what
+// decides whether bump may rewrite it: only a value the service owns, and
+// that no other service depends on, is a Pin.
+type Origin string
+
+const (
+	// OriginOwn is a literal written in the service's own mapping and used
+	// by no other service: the exact bytes bump would rewrite.
+	OriginOwn Origin = "own"
+	// OriginShared is a literal written in the service's own mapping but
+	// used by another service -- through an alias, a merge key, or
+	// Compose's extends. Rewriting it would change that service too.
+	OriginShared Origin = "shared"
+	// OriginMerge is a value the service inherits through a YAML merge key:
+	// its text lives with an anchor.
+	OriginMerge Origin = "merge"
+	// OriginAlias is a value that is an alias of an anchor: its text lives
+	// with the anchor.
+	OriginAlias Origin = "alias"
+	// OriginExtends is a value the service inherits from another service
+	// through Compose's extends: its text lives in that service.
+	OriginExtends Origin = "extends"
+	// OriginExternal is a value declared outside this file, in a file
+	// Compose includes: its text lives there.
+	OriginExternal Origin = "external"
+)
+
+// Rewritable reports whether the value is the service's own literal and
+// nothing else's, so bump may rewrite exactly those bytes.
+func (o Origin) Rewritable() bool { return o == OriginOwn }
+
 // Service is one service's image and where it lives in the file.
 type Service struct {
 	Name string
@@ -50,9 +83,14 @@ type Service struct {
 	// recorded exactly as written and resolved once, against the registry's
 	// default, further out.
 	Platform string
-	// Offset and Length delimit Ref.Raw within the compose file.
+	// Offset and Length delimit Ref.Raw within the compose file. They
+	// address the image value only when Origin is OriginOwn: every other
+	// origin keeps its text somewhere else -- in an anchor, or in another
+	// service -- and is left with a range that cannot be rewritten.
 	Offset int
 	Length int
+	// Origin says where the image value is written.
+	Origin Origin
 }
 
 // Stack is a parsed compose file.
@@ -134,54 +172,77 @@ func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
 			// A build-only service has nothing to check.
 			continue
 		}
-		pos, ok := raw[svcName]
+		decl, ok := raw[svcName]
 		if !ok {
-			return Stack{}, fmt.Errorf("compose: no image line found for service %q in %s", svcName, path)
+			// Compose resolved an image for a service this file does not
+			// declare one for: the value came from a file stackmon cannot
+			// see. It is still a declaration worth reporting, and one
+			// stackmon must not rewrite.
+			decl = declaration{origin: OriginExternal}
 		}
-		ref, err := imageref.Parse(pos.text, svc.Image)
+		// The text as written is the raw reference; Compose's resolved
+		// value is the same text after interpolation. A declaration whose
+		// text stackmon cannot see is reported as the resolved value, which
+		// is the reference the stack really runs.
+		text := decl.text
+		if text == "" {
+			text = svc.Image
+		}
+		ref, err := imageref.Parse(text, svc.Image)
 		if err != nil {
 			return Stack{}, fmt.Errorf("compose: service %q: %w", svcName, err)
 		}
 
-		// A quoted scalar's reported Column points at the opening quote,
-		// not the first content character, so the span verified against
-		// the file's bytes must include the quote characters too. The
-		// stored Offset/Length brackets only the inner text -- aligned
-		// with Ref.Raw, which is the decoded value -- so bump can rewrite
-		// it while leaving the quotes in place; image references never
-		// contain characters that need YAML escaping, so the decoded
-		// value's bytes always equal the inner literal bytes exactly.
-		quote := ""
-		switch {
-		case pos.style&yaml.DoubleQuotedStyle != 0:
-			quote = `"`
-		case pos.style&yaml.SingleQuotedStyle != 0:
-			quote = `'`
-		}
-		length := len(pos.text)
-		fullLength := length + 2*len(quote)
-		want := quote + pos.text + quote
-
-		// bump rewrites exactly the stored [Offset, Offset+Length) in the
-		// real file, so a wrong position must be caught here rather than
-		// silently corrupt a user's compose file later. One unreadable
-		// service is skipped with a recorded warning rather than failing
-		// the whole stack: its siblings still parsed correctly.
-		got := ""
-		if pos.offset >= 0 && pos.offset+fullLength <= len(data) {
-			got = string(data[pos.offset : pos.offset+fullLength])
-		}
-		if got != want {
-			st.Warnings = append(st.Warnings, fmt.Errorf("compose: service %q in %s: offset [%d:%d] holds %q, want image text %q", svcName, path, pos.offset, pos.offset+fullLength, got, want))
-			continue
-		}
-		st.Services = append(st.Services, Service{
+		svcOut := Service{
 			Name:     svcName,
 			Ref:      ref,
 			Platform: svc.Platform,
-			Offset:   pos.offset + len(quote),
-			Length:   length,
-		})
+			Origin:   decl.origin,
+			// A range that addresses nothing: only a declaration of the
+			// service's own carries bytes to rewrite.
+			Offset: -1,
+			Length: 0,
+		}
+
+		if decl.origin.Rewritable() {
+			// A quoted scalar's reported Column points at the opening
+			// quote, not the first content character, so the span verified
+			// against the file's bytes must include the quote characters
+			// too. The stored Offset/Length brackets only the inner text --
+			// aligned with Ref.Raw, which is the decoded value -- so bump
+			// can rewrite it while leaving the quotes in place; image
+			// references never contain characters that need YAML escaping,
+			// so the decoded value's bytes always equal the inner literal
+			// bytes exactly.
+			quote := ""
+			switch {
+			case decl.style&yaml.DoubleQuotedStyle != 0:
+				quote = `"`
+			case decl.style&yaml.SingleQuotedStyle != 0:
+				quote = `'`
+			}
+			length := len(decl.text)
+			fullLength := length + 2*len(quote)
+			want := quote + decl.text + quote
+
+			// bump rewrites exactly the stored [Offset, Offset+Length) in
+			// the real file, so a wrong position must be caught here rather
+			// than silently corrupt a user's compose file later. One
+			// unreadable service is skipped with a recorded warning rather
+			// than failing the whole stack: its siblings still parsed
+			// correctly.
+			got := ""
+			if decl.offset >= 0 && decl.offset+fullLength <= len(data) {
+				got = string(data[decl.offset : decl.offset+fullLength])
+			}
+			if got != want {
+				st.Warnings = append(st.Warnings, fmt.Errorf("compose: service %q in %s: offset [%d:%d] holds %q, want image text %q", svcName, path, decl.offset, decl.offset+fullLength, got, want))
+				continue
+			}
+			svcOut.Offset = decl.offset + len(quote)
+			svcOut.Length = length
+		}
+		st.Services = append(st.Services, svcOut)
 	}
 
 	sort.Slice(st.Services, func(i, j int) bool { return st.Services[i].Name < st.Services[j].Name })
@@ -262,24 +323,32 @@ func processEnv() map[string]string {
 	return env
 }
 
-type imagePos struct {
-	text   string
+// declaration is one service's image value: the text as written, and where
+// it comes from.
+type declaration struct {
+	// text is the image value as written, before interpolation.
+	text string
+	// offset is where text begins in the file. It is set only for a value
+	// the service owns, because only then are those bytes the ones bump
+	// would rewrite.
 	offset int
-	// style records whether the YAML node was quoted, so the byte span
+	// style records whether the value was quoted, so the byte span
 	// verified against the file can account for the quote characters.
 	style yaml.Style
+	// origin says where the value comes from.
+	origin Origin
 }
 
-// rawImages finds the uninterpolated image value for each service along with
-// its byte offset. compose-go resolves values but discards positions, so the
+// rawImages finds the image value each service declares, along with where it
+// is written. compose-go resolves values but discards positions, so the
 // document is walked a second time with yaml.v3, which reports line and
-// column for every node.
-func rawImages(data []byte) (map[string]imagePos, error) {
+// column for every node and keeps the anchors and aliases intact.
+func rawImages(data []byte) (map[string]declaration, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, err
 	}
-	out := map[string]imagePos{}
+	out := map[string]declaration{}
 	if len(doc.Content) == 0 {
 		return out, nil
 	}
@@ -292,20 +361,247 @@ func rawImages(data []byte) (map[string]imagePos, error) {
 		return out, nil
 	}
 
+	// A service another service depends on must keep its literal: rewriting
+	// it would change a consumer the user did not select.
+	consumed := consumedServices(services)
+
 	// A mapping's Content alternates key, value, key, value.
 	for i := 0; i+1 < len(services.Content); i += 2 {
 		svcName := services.Content[i].Value
-		image := mappingValue(services.Content[i+1], "image")
-		if image == nil {
-			continue
-		}
-		off, err := offsetOf(data, lineStarts, image.Line, image.Column)
+		decl, err := imageDeclaration(data, lineStarts, consumed, svcName, services.Content[i+1])
 		if err != nil {
 			return nil, fmt.Errorf("service %q: %w", svcName, err)
 		}
-		out[svcName] = imagePos{text: image.Value, offset: off, style: image.Style}
+		if decl == nil {
+			continue
+		}
+		out[svcName] = *decl
 	}
 	return out, nil
+}
+
+// imageDeclaration describes the image value one service declares: the text
+// as written, and where it comes from.
+func imageDeclaration(data []byte, lineStarts []int, consumed map[string]bool, name string, svc *yaml.Node) (*declaration, error) {
+	if svc == nil || svc.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+
+	image := mappingValue(svc, "image")
+	switch {
+	case image == nil:
+		// No image of its own: the value comes from a merge key, or from
+		// another service.
+		if merged := mergedImage(svc, nil); merged != nil {
+			decl := &declaration{origin: OriginMerge}
+			decl.text, decl.style = scalarText(merged)
+			return decl, nil
+		}
+		return &declaration{origin: OriginExtends}, nil
+
+	case image.Kind == yaml.AliasNode:
+		// The value is an alias: its text lives with the anchor.
+		decl := &declaration{origin: OriginAlias}
+		if image.Alias != nil {
+			decl.text, decl.style = scalarText(image.Alias)
+		}
+		return decl, nil
+
+	case image.Kind == yaml.ScalarNode:
+		origin := OriginOwn
+		if consumed[name] {
+			origin = OriginShared
+		}
+		off, err := scalarOffset(data, lineStarts, image)
+		if err != nil {
+			return nil, err
+		}
+		return &declaration{text: image.Value, offset: off, style: image.Style, origin: origin}, nil
+	}
+	return nil, nil
+}
+
+// scalarOffset returns the byte offset of a scalar's text. An anchored
+// scalar is reported at the anchor's position, not at the value's, so the
+// text starts after the anchor and the whitespace that follows it.
+func scalarOffset(data []byte, lineStarts []int, n *yaml.Node) (int, error) {
+	off, err := offsetOf(data, lineStarts, n.Line, n.Column)
+	if err != nil {
+		return 0, err
+	}
+	if n.Anchor == "" {
+		return off, nil
+	}
+	pos := off + len("&"+n.Anchor)
+	for pos < len(data) {
+		switch data[pos] {
+		case ' ', '\t':
+			pos++
+			continue
+		case '\n', '\r':
+			// The value may start on the next line, indented under it.
+			pos++
+			for pos < len(data) && (data[pos] == ' ' || data[pos] == '\t') {
+				pos++
+			}
+			continue
+		}
+		break
+	}
+	return pos, nil
+}
+
+// scalarText returns a node's text and quoting style, empty for a node that
+// is not a scalar. An alias is followed to the value it names.
+func scalarText(n *yaml.Node) (string, yaml.Style) {
+	if n == nil {
+		return "", 0
+	}
+	if n.Kind == yaml.AliasNode {
+		n = n.Alias
+	}
+	if n == nil || n.Kind != yaml.ScalarNode {
+		return "", 0
+	}
+	return n.Value, n.Style
+}
+
+// mergedImage finds the image value a service inherits through a YAML merge
+// key. The service's own keys win, and among several merged mappings the
+// first one that carries the key wins, as YAML merge semantics say.
+func mergedImage(mapping *yaml.Node, seen map[*yaml.Node]bool) *yaml.Node {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return nil
+	}
+	if seen == nil {
+		seen = map[*yaml.Node]bool{}
+	}
+	if seen[mapping] {
+		// An anchor that merges itself would otherwise loop forever.
+		return nil
+	}
+	seen[mapping] = true
+
+	if image := mappingValue(mapping, "image"); image != nil {
+		return image
+	}
+	merge := mappingValue(mapping, "<<")
+	for _, target := range mergeTargets(merge) {
+		if image := mergedImage(target, seen); image != nil {
+			return image
+		}
+	}
+	return nil
+}
+
+// mergeTargets returns the mappings a merge key pulls in, in the order YAML
+// gives them precedence.
+func mergeTargets(merge *yaml.Node) []*yaml.Node {
+	if merge == nil {
+		return nil
+	}
+	switch merge.Kind {
+	case yaml.AliasNode:
+		if merge.Alias != nil {
+			return []*yaml.Node{merge.Alias}
+		}
+	case yaml.SequenceNode:
+		var out []*yaml.Node
+		for _, item := range merge.Content {
+			out = append(out, mergeTargets(item)...)
+		}
+		return out
+	}
+	return nil
+}
+
+// consumedServices returns the services whose image another service depends
+// on: through a YAML alias, through a merge key, or through Compose's
+// extends. Such a service's literal is not a Pin, because rewriting it
+// would change a consumer the user did not select.
+func consumedServices(services *yaml.Node) map[string]bool {
+	consumed := map[string]bool{}
+	if services == nil || services.Kind != yaml.MappingNode {
+		return consumed
+	}
+
+	// The anchor each service publishes: the one on its own mapping, and
+	// the one on its own image value.
+	owners := map[string]string{}
+	names := map[string]bool{}
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		name := services.Content[i].Value
+		names[name] = true
+		svc := services.Content[i+1]
+		if svc == nil {
+			continue
+		}
+		if svc.Anchor != "" {
+			owners[svc.Anchor] = name
+		}
+		if image := mappingValue(svc, "image"); image != nil && image.Kind == yaml.ScalarNode && image.Anchor != "" {
+			owners[image.Anchor] = name
+		}
+	}
+
+	for i := 0; i+1 < len(services.Content); i += 2 {
+		name := services.Content[i].Value
+		svc := services.Content[i+1]
+		if svc == nil {
+			continue
+		}
+		// Every anchor this service refers to.
+		for anchor := range referencedAnchors(svc, map[string]bool{}) {
+			if owner, ok := owners[anchor]; ok && owner != name {
+				consumed[owner] = true
+			}
+		}
+		// Compose's own inheritance: a service that extends another one
+		// runs that one's image.
+		if base := extendsBase(svc); base != "" && names[base] {
+			consumed[base] = true
+		}
+	}
+	return consumed
+}
+
+// referencedAnchors returns the anchors a node refers to. The aliases
+// themselves are not followed: an alias's target is the definition it points
+// at, not a reference the definition's owner made.
+func referencedAnchors(n *yaml.Node, out map[string]bool) map[string]bool {
+	if n == nil {
+		return out
+	}
+	switch n.Kind {
+	case yaml.AliasNode:
+		if n.Alias != nil && n.Alias.Anchor != "" {
+			out[n.Alias.Anchor] = true
+		}
+	case yaml.MappingNode:
+		// A mapping's Content alternates key, value, key, value.
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			referencedAnchors(n.Content[i+1], out)
+		}
+	case yaml.SequenceNode:
+		for _, item := range n.Content {
+			referencedAnchors(item, out)
+		}
+	}
+	return out
+}
+
+// extendsBase returns the name of the service this one extends, empty when
+// it extends none.
+func extendsBase(svc *yaml.Node) string {
+	extends := mappingValue(svc, "extends")
+	if extends == nil || extends.Kind != yaml.MappingNode {
+		return ""
+	}
+	base := mappingValue(extends, "service")
+	if base == nil {
+		return ""
+	}
+	return base.Value
 }
 
 // mappingValue returns the value node for key in a mapping node.
