@@ -4095,3 +4095,24 @@ updating stackmon dev -> v9.9.9...
 --- stderr ---
 error: selfupdate: release v9.9.9 reports no sha256 digest for stackmon-linux-amd64, so it cannot be verified
 --- exit 1 ---
+
+### TestUpdatePreservesInstalledMetadata
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+updated to v9.9.9
+--- exit 0 ---
+### TestUpdatePreservesInstalledMetadata
+replacement content verified; installed mode preserved as 0751
+
+### TestUpdateRefusesANonWritableInstallDirectory
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: creating temp file: open ROOT/bin/.stackmon-update-TEMP: permission denied
+--- exit 1 ---
+### TestUpdateRefusesANonWritableInstallDirectory
+original binary unchanged; no update temporary files remain

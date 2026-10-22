@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/google/go-github/v66/github"
@@ -192,25 +193,56 @@ func (c *Client) fetch(ctx context.Context, url string) ([]byte, error) {
 // still running the old binary keeps its already-open inode, and a reader
 // of path never observes a partially-written file.
 func install(path string, data []byte) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("selfupdate: reading installed binary metadata: %w", err)
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("selfupdate: cannot determine installed binary ownership")
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("selfupdate: opening install directory: %w", err)
+	}
+	defer dir.Close()
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".stackmon-update-*")
 	if err != nil {
 		return fmt.Errorf("selfupdate: creating temp file: %w", err)
 	}
 	defer os.Remove(tmp.Name())
+	defer tmp.Close()
 
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
 		return fmt.Errorf("selfupdate: writing new binary: %w", err)
 	}
-	if err := tmp.Chmod(0o755); err != nil {
-		tmp.Close()
+	// Chown can clear special mode bits, so restore mode afterwards. A failed
+	// chown is harmless only when the file already has exactly the required IDs.
+	if err := tmp.Chown(int(owner.Uid), int(owner.Gid)); err != nil {
+		current, statErr := tmp.Stat()
+		if statErr != nil {
+			return fmt.Errorf("selfupdate: verifying new binary ownership: %w", statErr)
+		}
+		actual, ok := current.Sys().(*syscall.Stat_t)
+		if !ok || actual.Uid != owner.Uid || actual.Gid != owner.Gid {
+			return fmt.Errorf("selfupdate: preserving binary ownership: %w", err)
+		}
+	}
+	mode := info.Mode() & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+	if err := tmp.Chmod(mode); err != nil {
 		return fmt.Errorf("selfupdate: chmod new binary: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("selfupdate: syncing new binary: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("selfupdate: writing new binary: %w", err)
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("selfupdate: installing new binary: %w", err)
+	}
+	if err := dir.Sync(); err != nil {
+		return fmt.Errorf("selfupdate: new binary installed but durability uncertain: syncing install directory: %w", err)
 	}
 	return nil
 }

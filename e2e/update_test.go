@@ -3,6 +3,7 @@ package e2e
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -133,4 +134,58 @@ func TestUpdateRefusesAnAssetGitHubReportsNoDigestFor(t *testing.T) {
 	assertCode(t, "update", got.code, 1, got)
 	assertContains(t, "stderr", got.stderr, "error:", "no sha256 digest")
 	assertEq(t, "binary is untouched", e.read(bin), string(before))
+}
+
+func TestUpdatePreservesInstalledMetadata(t *testing.T) {
+	e := newEnv(t)
+	payload := []byte("#!/bin/sh\necho replacement\n")
+	e.publishStackmonRelease("v9.9.9", payload, "")
+	bin := e.installCopy()
+	if err := os.Chmod(bin, 0o751); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := e.runBinary(bin, "update")
+	assertCode(t, "update", got.code, 0, got)
+	after, err := os.Stat(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEq(t, "installed mode", after.Mode(), before.Mode())
+	assertEq(t, "installed binary", e.read(bin), string(payload))
+	e.note("replacement content verified; installed mode preserved as 0751")
+}
+
+func TestUpdateRefusesANonWritableInstallDirectory(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory write permissions")
+	}
+	e := newEnv(t)
+	e.publishStackmonRelease("v9.9.9", []byte("replacement"), "")
+	bin := e.installCopy()
+	before := e.read(bin)
+	dir := filepath.Dir(bin)
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	got := e.exec(bin, "update")
+	assertCode(t, "update", got.code, 1, got)
+	assertContains(t, "stderr", got.stderr, "creating temp file", "permission denied")
+	got.stderr = regexp.MustCompile(`\.stackmon-update-[0-9]+`).ReplaceAllString(got.stderr, ".stackmon-update-TEMP")
+	e.record([]string{"update"}, got)
+	assertEq(t, "original binary", e.read(bin), before)
+	assertNoUpdateTemps(t, bin)
+	e.note("original binary unchanged; no update temporary files remain")
+}
+
+func assertNoUpdateTemps(t *testing.T, bin string) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(filepath.Dir(bin), ".stackmon-update-*"))
+	if err != nil || len(files) != 0 {
+		t.Fatalf("update temporary files: %v (%v)", files, err)
+	}
 }
