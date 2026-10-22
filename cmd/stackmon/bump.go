@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -43,6 +45,15 @@ func newBumpCmd() *cobra.Command {
 			r, parsed, err := loadStackReport(cmd, args[:1])
 			if err != nil {
 				return err
+			}
+			// A failed load has no parsed stack and has already printed its
+			// warning. Only a successfully loaded stack can prove a typo.
+			if len(args) == 2 && len(parsed) == 1 && !slices.Contains(parsed[0].ServiceNames, args[1]) {
+				names := strings.Join(parsed[0].ServiceNames, ", ")
+				if names == "" {
+					names = "(none)"
+				}
+				return fmt.Errorf("bump: unknown service %q in stack %q; declared services: %s", args[1], parsed[0].Name, names)
 			}
 			cfg, err := loadConfig()
 			if err != nil {

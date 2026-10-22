@@ -105,6 +105,10 @@ type Stack struct {
 	// the project is to be matched from the paths Docker recorded.
 	Project  string
 	Services []Service
+	// ServiceNames includes every Compose declaration, including build-only
+	// services and services whose image could not be safely inspected.
+	// Services contains only the inspectable image declarations.
+	ServiceNames []string
 	// Warnings records per-service issues that were skipped rather than
 	// failing the whole stack: one unreadable image value must not erase
 	// its siblings.
@@ -166,7 +170,9 @@ func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
 		return Stack{}, fmt.Errorf("compose: loading %s: %w", path, err)
 	}
 
-	st := Stack{Name: name, Dir: dir, File: file, Project: s.Project}
+	st := Stack{Name: name, Dir: dir, File: file, Project: s.Project, ServiceNames: project.ServiceNames()}
+	st.ServiceNames = append(st.ServiceNames, project.DisabledServiceNames()...)
+	sort.Strings(st.ServiceNames)
 	for svcName, svc := range project.Services {
 		if strings.TrimSpace(svc.Image) == "" {
 			// A build-only service has nothing to check.
