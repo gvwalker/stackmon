@@ -364,3 +364,12 @@ This creates `/tmp/release-notes.md` and `/tmp/release-notes.json` without taggi
 or publishing. See the [release runbook](docs/agents/releases.md) for version
 policy, recovery, and verification. `checksums.txt` remains available for older
 updaters; current `stackmon update` verifies GitHub's asset digest.
+
+`stackmon update` preserves the installed executable's owner, group, and mode.
+It requires write access to the installation directory and permission to preserve
+that ownership; use the appropriate account for your installation. The verified
+replacement is synced before atomic replacement, then the containing directory
+is synced. If that last sync fails, the command reports that the new binary is
+installed but durability is uncertain; the old binary has already been replaced.
+See [update installation verification](docs/testing-selfupdate.md) for repeatable
+ownership and syscall failure checks.
