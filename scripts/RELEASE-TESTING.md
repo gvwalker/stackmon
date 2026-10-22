@@ -27,4 +27,5 @@ with `scripts/testdata/release-transcript.golden`; update deliberately with
 `UPDATE_GOLDEN=1 python3 scripts/test_release.py`. Scenario-specific assertions
 verify the actual notes, plan, remote refs, assets, and failure side effects.
 CI retains this transcript and the application E2E transcript, including on
-failure. These tools do not claim application race coverage (issue #48).
+failure. Application race coverage is verified separately by the E2E harness;
+see [E2E race verification](../e2e/RACE-TESTING.md).

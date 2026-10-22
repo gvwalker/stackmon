@@ -163,7 +163,7 @@ jobs:
       - name: Run vet
         run: go vet ./...
 
-      - name: Run tests with race detector
+      - name: Run harness and CLI tests with race detector
         run: go test -race ./... -count=1
 
       - name: Retain verification transcripts
@@ -174,6 +174,7 @@ jobs:
           overwrite: true
           path: |
             e2e/out/transcript.txt
+            e2e/out/race-coverage.txt
             ${{ runner.temp }}/release-tools/out/release-transcript.txt
 
       - name: Build binaries

@@ -69,6 +69,10 @@ var (
 // verifies the transcript artifact. Comparing the artifact here (rather than
 // in a test) keeps the check independent of the order tests happen to run in.
 func TestMain(m *testing.M) {
+	// Isolated harness probes reuse this test executable without rebuilding CLIs.
+	if os.Getenv("STACKMON_E2E_RACE_PROBE") != "" {
+		os.Exit(m.Run())
+	}
 	dir, err := os.MkdirTemp("", "stackmon-e2e-bin")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -87,6 +91,10 @@ func build(out, version string) {
 	// stackmon_e2e compiles the deterministic after-validation barrier into the
 	// test binary only; a shipped binary contains no test hook.
 	args := []string{"build", "-tags", "stackmon_e2e", "-o", out}
+	// The race build tag describes the harness; subprocesses need their own flag.
+	if raceEnabled {
+		args = append(args, "-race")
+	}
 	if version != "" {
 		args = append(args, "-ldflags", "-X main.version="+version)
 	}
@@ -659,6 +667,11 @@ func outcome(args []string, err error, stdout, stderr string) (result, error) {
 	default:
 		return res, fmt.Errorf("running stackmon %v: %w", args, err)
 	}
+	// Race failures are harness failures even when a scenario expects a CLI
+	// error. Check raw output before normalization or golden handling.
+	if res.code == 66 || strings.Contains(stdout, "WARNING: DATA RACE") || strings.Contains(stderr, "WARNING: DATA RACE") {
+		return res, fmt.Errorf("child race detected running stackmon %v (exit %d):\n%s%s", args, res.code, stdout, stderr)
+	}
 	return res, nil
 }
 
@@ -921,6 +934,9 @@ func (e *env) environ(over map[string]string) []string {
 		"STACKMON_DOCKER_SOCKET": e.docker.sock,
 		"STACKMON_GITHUB_API":    e.gh.server.URL,
 		"NO_PROXY":               "127.0.0.1,localhost",
+		// Keep reports capturable and the failure code reserved. Avoid the
+		// runtime's one-second exit delay on every instrumented CLI invocation.
+		"GORACE": "log_path=stderr exitcode=66 atexit_sleep_ms=0",
 	}
 	for k, v := range e.over {
 		set[k] = v
