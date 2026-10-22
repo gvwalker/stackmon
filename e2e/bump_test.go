@@ -420,6 +420,84 @@ func TestBumpReportsAnUnparseableStackWithoutFailing(t *testing.T) {
 	assertContains(t, "stderr", got.stderr, "warning:", "broken")
 }
 
+// Explicit selection checks declaration membership, not whether an image has
+// an eligible update. Every scenario records the resulting file bytes.
+func TestBumpValidatesExplicitService(t *testing.T) {
+	for _, mode := range []string{"apply", "dry-run"} {
+		for _, scenario := range []string{"typo", "current", "floating", "build-only", "build-only-stack", "profiled", "load-failure", "update"} {
+			t.Run(mode+"/"+scenario, func(t *testing.T) {
+				e := newEnv(t)
+				declared := e.push("app", "1.0.0", image{})
+				body := fmt.Sprintf("services:\n  api:\n    image: %s\n  worker:\n    build: .\n", e.ref("app", "1.0.0"))
+				service, wantCode := "api", 0
+				wantOut, wantErr := "nothing to bump", ""
+				switch scenario {
+				case "current":
+					body = strings.Replace(body, e.ref("app", "1.0.0"), e.ref("app", "1.0.0")+"@"+declared, 1)
+					wantErr = "is already at"
+				case "typo":
+					e.push("app", "1.1.0", image{})
+					service, wantCode = "typo", 1
+					wantOut, wantErr = "", "unknown service"
+				case "floating":
+					e.push("app", "latest", image{})
+					body = fmt.Sprintf("services:\n  api:\n    image: %s\n", e.ref("app", "latest"))
+					wantErr = "floating tag"
+				case "build-only":
+					e.push("app", "1.1.0", image{})
+					service = "worker"
+				case "build-only-stack":
+					body, service = "services:\n  worker:\n    build: .\n", "worker"
+				case "profiled":
+					body += "    profiles: [tools]\n"
+					service = "worker"
+				case "load-failure":
+					body, service = "services:\n  api:\n    image: ${REQUIRED_IMAGE:?must be set}\n", "typo"
+					wantErr = "warning:"
+				case "update":
+					e.push("app", "1.1.0", image{})
+					wantOut = "bumped demo/api:"
+				}
+				path := e.enrollStack("demo", body)
+				e.note("compose before explicit selection:\n%s", e.normalize(body))
+				args := []string{"bump", "demo", service}
+				if mode == "dry-run" {
+					args = append(args, "--dry-run")
+					if scenario == "update" {
+						wantOut = "+    image: " + e.ref("app", "1.1.0")
+					} else {
+						wantOut = ""
+					}
+				}
+				got := e.run(args...)
+				assertCode(t, "explicit service selection", got.code, wantCode, got)
+				if wantOut != "" {
+					assertContains(t, "stdout", got.stdout, wantOut)
+				}
+				if wantErr != "" {
+					assertContains(t, "stderr", got.stderr, wantErr)
+				}
+				if scenario == "typo" {
+					assertContains(t, "stderr", got.stderr, "typo", "demo", "api", "worker")
+					assertOmits(t, "stdout", got.stdout, "nothing to bump", "bumped", "--- ", "+++ ")
+				} else {
+					assertOmits(t, "stderr", got.stderr, "unknown service")
+				}
+				if scenario == "load-failure" {
+					assertContains(t, "stderr", got.stderr, "REQUIRED_IMAGE", "must be set")
+				}
+				wantFile := body
+				if scenario == "update" && mode == "apply" {
+					wantFile = strings.Replace(body, e.ref("app", "1.0.0"), e.ref("app", "1.1.0"), 1)
+				}
+				after := e.read(path)
+				assertEq(t, "compose after explicit selection", after, wantFile)
+				e.note("compose after explicit selection:\n%s", e.normalize(after))
+			})
+		}
+	}
+}
+
 func TestBumpOnlyRewritesTheNamedService(t *testing.T) {
 	e := newEnv(t)
 	e.push("app", "1.0.0", image{})

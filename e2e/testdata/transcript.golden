@@ -524,6 +524,437 @@ $ stackmon bump broken --dry-run
 warning: broken: compose: loading ROOT/srv/broken/compose.yaml: error while interpolating services.api.image: required variable REQUIRED_IMAGE is missing a value: must be set
 --- exit 0 ---
 
+### TestBumpValidatesExplicitService/apply/typo
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/typo
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/typo
+$ stackmon bump demo typo
+--- stderr ---
+error: bump: unknown service "typo" in stack "demo"; declared services: api, worker
+--- exit 1 ---
+### TestBumpValidatesExplicitService/apply/typo
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/current
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/current
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/current
+$ stackmon bump demo api
+--- stdout ---
+nothing to bump
+--- stderr ---
+skipped: bump: demo/api is already at REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/current
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/floating
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/floating
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:latest
+
+
+### TestBumpValidatesExplicitService/apply/floating
+$ stackmon bump demo api
+--- stdout ---
+nothing to bump
+--- stderr ---
+skipped: bump: demo/api tracks the floating tag "latest"; there is no newer version to move to, and pinning it would change how it updates
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/floating
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:latest
+
+
+### TestBumpValidatesExplicitService/apply/build-only
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/build-only
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/build-only
+$ stackmon bump demo worker
+--- stdout ---
+nothing to bump
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/build-only
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/build-only-stack
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/build-only-stack
+compose before explicit selection:
+services:
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/build-only-stack
+$ stackmon bump demo worker
+--- stdout ---
+nothing to bump
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/build-only-stack
+compose after explicit selection:
+services:
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/profiled
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/profiled
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+    profiles: [tools]
+
+
+### TestBumpValidatesExplicitService/apply/profiled
+$ stackmon bump demo worker
+--- stdout ---
+nothing to bump
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/profiled
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+    profiles: [tools]
+
+
+### TestBumpValidatesExplicitService/apply/load-failure
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/load-failure
+compose before explicit selection:
+services:
+  api:
+    image: ${REQUIRED_IMAGE:?must be set}
+
+
+### TestBumpValidatesExplicitService/apply/load-failure
+$ stackmon bump demo typo
+--- stdout ---
+nothing to bump
+--- stderr ---
+warning: demo: compose: loading ROOT/srv/demo/compose.yaml: error while interpolating services.api.image: required variable REQUIRED_IMAGE is missing a value: must be set
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/load-failure
+compose after explicit selection:
+services:
+  api:
+    image: ${REQUIRED_IMAGE:?must be set}
+
+
+### TestBumpValidatesExplicitService/apply/update
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/update
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/apply/update
+$ stackmon bump demo api
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- exit 0 ---
+### TestBumpValidatesExplicitService/apply/update
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.1.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/typo
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/typo
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/typo
+$ stackmon bump demo typo --dry-run
+--- stderr ---
+error: bump: unknown service "typo" in stack "demo"; declared services: api, worker
+--- exit 1 ---
+### TestBumpValidatesExplicitService/dry-run/typo
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/current
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/current
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/current
+$ stackmon bump demo api --dry-run
+--- stderr ---
+skipped: bump: demo/api is already at REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/current
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0@sha256:aba23cf2b248fd1047c0a93098e61be49722fca47adf3e249cd83a01bc62307c
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/floating
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/floating
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:latest
+
+
+### TestBumpValidatesExplicitService/dry-run/floating
+$ stackmon bump demo api --dry-run
+--- stderr ---
+skipped: bump: demo/api tracks the floating tag "latest"; there is no newer version to move to, and pinning it would change how it updates
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/floating
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:latest
+
+
+### TestBumpValidatesExplicitService/dry-run/build-only
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/build-only
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/build-only
+$ stackmon bump demo worker --dry-run
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/build-only
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/build-only-stack
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/build-only-stack
+compose before explicit selection:
+services:
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/build-only-stack
+$ stackmon bump demo worker --dry-run
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/build-only-stack
+compose after explicit selection:
+services:
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/profiled
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/profiled
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+    profiles: [tools]
+
+
+### TestBumpValidatesExplicitService/dry-run/profiled
+$ stackmon bump demo worker --dry-run
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/profiled
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+    profiles: [tools]
+
+
+### TestBumpValidatesExplicitService/dry-run/load-failure
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/load-failure
+compose before explicit selection:
+services:
+  api:
+    image: ${REQUIRED_IMAGE:?must be set}
+
+
+### TestBumpValidatesExplicitService/dry-run/load-failure
+$ stackmon bump demo typo --dry-run
+--- stderr ---
+warning: demo: compose: loading ROOT/srv/demo/compose.yaml: error while interpolating services.api.image: required variable REQUIRED_IMAGE is missing a value: must be set
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/load-failure
+compose after explicit selection:
+services:
+  api:
+    image: ${REQUIRED_IMAGE:?must be set}
+
+
+### TestBumpValidatesExplicitService/dry-run/update
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/update
+compose before explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
+### TestBumpValidatesExplicitService/dry-run/update
+$ stackmon bump demo api --dry-run
+--- stdout ---
+--- ROOT/srv/demo/compose.yaml
++++ ROOT/srv/demo/compose.yaml
+-    image: REGISTRY/app:1.0.0
++    image: REGISTRY/app:1.1.0
+--- exit 0 ---
+### TestBumpValidatesExplicitService/dry-run/update
+compose after explicit selection:
+services:
+  api:
+    image: REGISTRY/app:1.0.0
+  worker:
+    build: .
+
+
 ### TestBumpOnlyRewritesTheNamedService
 $ stackmon enroll ROOT/srv/demo
 --- stdout ---
