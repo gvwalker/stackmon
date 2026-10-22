@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/google/go-github/v66/github"
+
+	"github.com/gvwalker/stackmon/internal/readretry"
 )
 
 // Request budgets. Each bounds one HTTP exchange end to end -- connecting,
-// waiting for headers, and reading the whole response body -- because a
+// waiting for headers, retries/backoff, and reading the whole body -- because a
 // server that answers and then stalls is as unreachable as one that never
 // answers at all. They are ceilings, not extensions: an earlier caller
 // deadline or cancellation always wins, and cancellation is honored mid-body.
@@ -40,7 +42,7 @@ var (
 // an update check claim the running version is current. Every request the
 // client makes is bounded by Metadata.
 func New(token string) *github.Client {
-	gh := github.NewClient(&http.Client{Timeout: Metadata})
+	gh := github.NewClient(&http.Client{Timeout: Metadata, Transport: readretry.Transport(nil)})
 	if token != "" {
 		gh = gh.WithAuthToken(token)
 	}
@@ -56,5 +58,5 @@ func New(token string) *github.Client {
 // Download: the same end-to-end exchange budget as the API client, sized
 // for an executable instead of a JSON document.
 func Downloader() *http.Client {
-	return &http.Client{Timeout: Download}
+	return &http.Client{Timeout: Download, Transport: readretry.Transport(nil)}
 }

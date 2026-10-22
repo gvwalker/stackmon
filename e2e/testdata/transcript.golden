@@ -1575,7 +1575,7 @@ $ stackmon whats-new
 stackmon v0.0.1
 
 --- stderr ---
-error: selfupdate: fetching latest release: Get "GITHUB/repos/gvwalker/stackmon/releases/latest": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+error: selfupdate: fetching latest release: context deadline exceeded
 --- exit 1 ---
 ### TestWhatsNewBoundsAStalledGitHubAPI
 GitHub requests: releases=2
@@ -1586,7 +1586,7 @@ $ stackmon update
 running a dev build; checking for the latest release anyway
 updating stackmon dev -> v9.9.9...
 --- stderr ---
-error: selfupdate: downloading stackmon-linux-amd64: context deadline exceeded (Client.Timeout or context cancellation while reading body)
+error: selfupdate: downloading stackmon-linux-amd64: context deadline exceeded
 --- exit 1 ---
 ### TestUpdateBoundsAStalledDownload
 GitHub requests: releases=2 asset=1; installed binary unchanged, no update temporaries remain
@@ -3964,6 +3964,412 @@ $ stackmon discover
 NAME  STATE     PATH
 demo  enrolled  ROOT/srv/demo/compose.yaml
 --- exit 0 ---
+
+### TestRetryRegistryReads/manifests/1.0.0/429
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryReads/manifests/1.0.0/429
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "not-running",
+      "platform": "linux/amd64",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryReads/manifests/1.0.0/429
+manifests/1.0.0 initial HTTP 429: attempts=2; report status=not-running
+
+### TestRetryRegistryReads/manifests/1.0.0/503
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryReads/manifests/1.0.0/503
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "not-running",
+      "platform": "linux/amd64",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryReads/manifests/1.0.0/503
+manifests/1.0.0 initial HTTP 503: attempts=2; report status=not-running
+
+### TestRetryRegistryReads/manifests/1.0.0/404
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryReads/manifests/1.0.0/404
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "unknown",
+      "platform": "linux/amd64",
+      "version": "",
+      "candidate": "",
+      "error": "registry: fetching REGISTRY/app:1.0.0: GET http://REGISTRY/v2/app/manifests/1.0.0: unexpected status code 404 Not Found: {\"message\":\"fixture failure\"}",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryReads/manifests/1.0.0/404
+manifests/1.0.0 initial HTTP 404: attempts=1; report status=unknown
+
+### TestRetryRegistryReads/tags/list/429
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryReads/tags/list/429
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "not-running",
+      "platform": "linux/amd64",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryReads/tags/list/429
+tags/list initial HTTP 429: attempts=2; report status=not-running
+
+### TestRetryRegistryReads/tags/list/503
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryReads/tags/list/503
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "not-running",
+      "platform": "linux/amd64",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryReads/tags/list/503
+tags/list initial HTTP 503: attempts=2; report status=not-running
+
+### TestRetryRegistryReads/tags/list/404
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryReads/tags/list/404
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "unknown",
+      "platform": "linux/amd64",
+      "version": "",
+      "candidate": "",
+      "error": "registry: listing tags for REGISTRY/app: GET http://REGISTRY/v2/app/tags/list?n=1000: unexpected status code 404 Not Found: {\"message\":\"fixture failure\"}",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryReads/tags/list/404
+tags/list initial HTTP 404: attempts=1; report status=unknown
+
+### TestRetryGitHubReads/429
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+### TestRetryGitHubReads/429
+initial HTTP 429 (0=dropped connection): attempts=2
+
+### TestRetryGitHubReads/500
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+### TestRetryGitHubReads/500
+initial HTTP 500 (0=dropped connection): attempts=2
+
+### TestRetryGitHubReads/502
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+### TestRetryGitHubReads/502
+initial HTTP 502 (0=dropped connection): attempts=2
+
+### TestRetryGitHubReads/503
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+### TestRetryGitHubReads/503
+initial HTTP 503 (0=dropped connection): attempts=2
+
+### TestRetryGitHubReads/504
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+### TestRetryGitHubReads/504
+initial HTTP 504 (0=dropped connection): attempts=2
+
+### TestRetryGitHubReads/0
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+### TestRetryGitHubReads/0
+initial HTTP 0 (0=dropped connection): attempts=2
+
+### TestRetryGitHubReads/401
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+--- stderr ---
+error: selfupdate: fetching latest release: GET GITHUB/repos/gvwalker/stackmon/releases/latest: 401 fixture failure []
+--- exit 1 ---
+### TestRetryGitHubReads/401
+initial HTTP 401 (0=dropped connection): attempts=1
+
+### TestRetryGitHubReads/403
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+--- stderr ---
+error: selfupdate: fetching latest release: GET GITHUB/repos/gvwalker/stackmon/releases/latest: 403 fixture failure []
+--- exit 1 ---
+### TestRetryGitHubReads/403
+initial HTTP 403 (0=dropped connection): attempts=1
+
+### TestRetryGitHubReads/404
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+--- stderr ---
+error: selfupdate: fetching latest release: GET GITHUB/repos/gvwalker/stackmon/releases/latest: 404 fixture failure []
+--- exit 1 ---
+### TestRetryGitHubReads/404
+initial HTTP 404 (0=dropped connection): attempts=1
+
+### TestRetryReleaseNotesAndAsset
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryReleaseNotesAndAsset
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+
+    1.1.0
+      Recovered application notes.
+
+--- exit 0 ---
+### TestRetryReleaseNotesAndAsset
+release notes recovered after 503; attempts=2
+
+### TestRetryReleaseNotesAndAsset
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+updated to v9.9.9
+--- exit 0 ---
+### TestRetryReleaseNotesAndAsset
+asset recovered after 503; attempts=2; installed bytes verified; no temporary files remain
+
+### TestRetryBoundsAndRetryAfter/exhausted
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+--- stderr ---
+error: selfupdate: fetching latest release: GET GITHUB/repos/gvwalker/stackmon/releases/latest: 503 fixture failure []
+--- exit 1 ---
+### TestRetryBoundsAndRetryAfter/exhausted
+exhausted: attempts=3; bounded completion; delayed recovery=false
+
+### TestRetryBoundsAndRetryAfter/seconds
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+update available: v0.0.1 -> v9.9.9 (run 'stackmon update')
+--- exit 0 ---
+### TestRetryBoundsAndRetryAfter/seconds
+seconds: attempts=2; bounded completion; delayed recovery=true
+
+### TestRetryBoundsAndRetryAfter/deadline
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+--- stderr ---
+error: selfupdate: fetching latest release: context deadline exceeded
+--- exit 1 ---
+### TestRetryBoundsAndRetryAfter/deadline
+deadline: attempts=1; bounded completion; delayed recovery=false
+
+### TestRetryRegistryHonorsDelayAndAttemptLimit/false
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryHonorsDelayAndAttemptLimit/false
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "not-running",
+      "platform": "linux/amd64",
+      "version": "1.0.0",
+      "candidate": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryHonorsDelayAndAttemptLimit/false
+registry exhausted=false: attempts=2, status=not-running; Retry-After checked on recovery
+
+### TestRetryRegistryHonorsDelayAndAttemptLimit/true
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestRetryRegistryHonorsDelayAndAttemptLimit/true
+$ stackmon check --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "images": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "status": "unknown",
+      "platform": "linux/amd64",
+      "version": "",
+      "candidate": "",
+      "error": "registry: fetching REGISTRY/app:1.0.0: GET http://REGISTRY/v2/app/manifests/1.0.0: unexpected status code 503 Service Unavailable: {\"message\":\"fixture failure\"}",
+      "identity_note": ""
+    }
+  ]
+}
+--- exit 0 ---
+### TestRetryRegistryHonorsDelayAndAttemptLimit/true
+registry exhausted=true: attempts=3, status=unknown; Retry-After checked on recovery
+
+### TestRetryDoesNotRepeatInvalidContent
+$ stackmon whats-new
+--- stdout ---
+stackmon v0.0.1
+
+--- stderr ---
+error: selfupdate: fetching latest release: invalid character 'i' looking for beginning of value
+--- exit 1 ---
+### TestRetryDoesNotRepeatInvalidContent
+invalid release JSON: attempts=1
+
+### TestRetryDoesNotRepeatInvalidContent
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: checksum mismatch for stackmon-linux-amd64
+--- exit 1 ---
+### TestRetryDoesNotRepeatInvalidContent
+checksum failure: attempts=1; original executable SHA-256 unchanged; no temporary files remain
 
 ### TestShowExplainsWhyADigestChanged/rebuilt_from_the_same_revision
 $ stackmon enroll ROOT/srv/demo
