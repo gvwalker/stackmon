@@ -44,6 +44,10 @@ _Avoid_: Scan, crawl.
 One container definition within a stack's compose file, identifying one image reference to track.
 _Avoid_: Container (a service is declared; a container is the running instance of it).
 
+**Declaration**:
+Where a Service's image value is written: the Service's own literal, a literal another Service also uses, a value inherited through a YAML merge key or an alias, a value inherited through Compose's `extends`, or a value declared in a file Compose includes. A Declaration is what a Service runs, whether or not the Service wrote it: an inherited value is reported like any other, and is never rewritten, because its text belongs to an anchor, to another Service, or to another file.
+_Avoid_: Pin (reserve "pin" for the literal text `bump` rewrites), Origin, Source, Image source.
+
 **Replica**:
 One running container instance of a Service within its Project. A Service can have multiple Replicas whose deployed image content differs; agreement by one Replica does not establish agreement by all. A Replica whose image has no recorded digest is unknown, never agreement. A `docker compose run` container is not a Replica.
 _Avoid_: Service (reserve for the Compose definition).
@@ -97,7 +101,7 @@ The operation that rewrites one stack's eligible image pins to their Candidates 
 _Avoid_: Update (reserve for the Status; Bump is the action that could resolve an update-available Status), upgrade.
 
 **Pin**:
-The literal image reference text in a compose file that Bump may rewrite. A floating tag (`:latest`) or an interpolated reference (`${IMAGE_TAG}`) has no safe literal pin and is refused.
+The literal image reference text in a compose file that Bump may rewrite. A floating tag (`:latest`) or an interpolated reference (`${IMAGE_TAG}`) has no safe literal pin and is refused. Only a Declaration the Service owns, and that no other Service depends on, is a Pin: rewriting an inherited one would change a consumer the user did not select.
 _Avoid_: Reference (see Ref), lock.
 
 **Digest Pinning**:

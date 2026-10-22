@@ -60,6 +60,10 @@ func detailCell(i report.Image) string {
 	if n := replicaNote(i.ReplicaComparison); n != "" {
 		notes = append(notes, n)
 	}
+	origin := originNote(i)
+	if origin != "" {
+		notes = append(notes, origin)
+	}
 	note := strings.Join(notes, "; ")
 
 	var cell string
@@ -86,9 +90,17 @@ func detailCell(i report.Image) string {
 		cell = "no running container"
 	case report.StatusCurrent:
 		// All the replicas agreed, which is only worth saying when there was
-		// more than one of them.
+		// more than one of them. Where the image came from is worth saying
+		// whenever it is not the service's own literal: that row cannot be
+		// bumped.
 		if len(i.Replicas) > 1 {
 			return note
+		}
+		if origin != "" {
+			if n := platformNote(i); n != "" {
+				return n + "; " + origin
+			}
+			return origin
 		}
 		return platformNote(i)
 	default:
@@ -121,6 +133,35 @@ func platformNote(i report.Image) string {
 		return ""
 	}
 	return "platform " + i.Platform
+}
+
+// originNote says why bump will not rewrite a row's image: the value is
+// written somewhere other than the service's own literal. A row the user
+// cannot act on should say so rather than look like any other.
+func originNote(i report.Image) string {
+	phrase := originPhrase(i)
+	if phrase == "" {
+		return ""
+	}
+	return "image " + phrase + "; bump will not rewrite it"
+}
+
+// originPhrase names where an image value is written, when it is not the
+// service's own literal.
+func originPhrase(i report.Image) string {
+	switch i.Origin {
+	case report.OriginShared:
+		return "shared with another service"
+	case report.OriginMerge:
+		return "inherited from a YAML merge key"
+	case report.OriginAlias:
+		return "aliased from an anchor"
+	case report.OriginExtends:
+		return "inherited from another service"
+	case report.OriginExternal:
+		return "declared outside this file"
+	}
+	return ""
 }
 
 func firstNonEmpty(values ...string) string {

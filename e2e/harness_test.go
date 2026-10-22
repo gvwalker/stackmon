@@ -891,6 +891,10 @@ type row struct {
 	Statuses         []string `json:"statuses"`
 	Err              string   `json:"error"`
 	RunningError     string   `json:"running_error"`
+	// Origin says where the service's image value is written: a literal of
+	// its own ("own"), a literal another service also uses ("shared"), or a
+	// value it inherits ("merge", "alias", "extends", "external").
+	Origin string `json:"origin"`
 }
 
 // replicaView is the same shape whether it describes one running container or
@@ -947,6 +951,11 @@ func (e *env) checkJSON(args ...string) report {
 		}
 		if i.IdentityNote != "" {
 			extra += " [" + i.IdentityNote + "]"
+		}
+		// Where an image value is written is worth recording when it is not
+		// the service's own literal: that row cannot be bumped.
+		if i.Origin != "" && i.Origin != "own" {
+			extra += " [origin " + i.Origin + "]"
 		}
 		// The replica counts and the digest they were judged against belong
 		// in the artifact: a status of current means something quite

@@ -23,6 +23,11 @@ func Detail(w io.Writer, i report.Image, rels []notes.Release) error {
 			return err
 		}
 	}
+	if phrase := originPhrase(i); phrase != "" {
+		if _, err := fmt.Fprintf(w, "  origin:    %s\n", phrase); err != nil {
+			return err
+		}
+	}
 	if _, err := fmt.Fprintf(w, "  status:    %s\n", i.Status); err != nil {
 		return err
 	}

@@ -395,6 +395,7 @@ func assemble(st compose.Stack, svc compose.Service, p probe, running map[string
 		IdentityNote:   id.note,
 		DockerChecked:  dockerUp,
 		RunningError:   runningErr,
+		Origin:         svc.Origin,
 	}
 
 	for _, c := range running[id.project+"/"+svc.Name] {

@@ -1779,6 +1779,218 @@ $ stackmon check --json
   good         web        1.0.0      update-available    -> 1.1.0 (minor)
 --- docker available: true ---
 
+### TestCheckReportsInheritedImagesAndTheirSiblings
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsInheritedImagesAndTheirSiblings
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor)
+demo   web      1.0.0    update-available  1.1.0 available (minor); image inherited from a YAML merge key; bump will not rewrite it
+--- exit 0 ---
+
+### TestCheckReportsInheritedImagesAndTheirSiblings
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+  demo         web        1.0.0      update-available    -> 1.1.0 (minor) [origin merge]
+--- docker available: true ---
+### TestCheckReportsInheritedImagesAndTheirSiblings
+manifest fetches for the image both services run: 1
+
+### TestCheckReportsInheritedImagesAndTheirSiblings
+$ stackmon show demo
+--- stdout ---
+demo / api
+  reference: REGISTRY/app:1.0.0
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+demo / web
+  reference: REGISTRY/app:1.0.0
+  origin:    inherited from a YAML merge key
+  status:    update-available
+  platform:  linux/amd64
+  version:   1.0.0
+  available: 1.1.0 (minor)
+
+  release notes
+    no release notes available (no source label, and no repo configured for this image)
+
+--- exit 0 ---
+
+### TestCheckReportsAnAliasedImage
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsAnAliasedImage
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor)
+demo   web      1.0.0    update-available  1.1.0 available (minor); image aliased from an anchor; bump will not rewrite it
+--- exit 0 ---
+
+### TestCheckReportsAnAliasedImage
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+  demo         web        1.0.0      update-available    -> 1.1.0 (minor) [origin alias]
+--- docker available: true ---
+
+### TestCheckReportsAnExtendsInheritedImage
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsAnExtendsInheritedImage
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   base     1.0.0    update-available  1.1.0 available (minor); image shared with another service; bump will not rewrite it
+demo   web      1.0.0    update-available  1.1.0 available (minor); image inherited from another service; bump will not rewrite it
+--- exit 0 ---
+
+### TestCheckReportsAnExtendsInheritedImage
+$ stackmon check --json
+  demo         base       1.0.0      update-available    -> 1.1.0 (minor) [origin shared]
+  demo         web        1.0.0      update-available    -> 1.1.0 (minor) [origin extends]
+--- docker available: true ---
+
+### TestCheckReportsAServiceDeclaredInAnIncludedFile
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckReportsAServiceDeclaredInAnIncludedFile
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS            DETAIL
+demo   api      1.0.0    update-available  1.1.0 available (minor)
+demo   extra    1.0.0    update-available  1.1.0 available (minor); image declared outside this file; bump will not rewrite it
+--- exit 0 ---
+
+### TestCheckReportsAServiceDeclaredInAnIncludedFile
+$ stackmon check --json
+  demo         api        1.0.0      update-available    -> 1.1.0 (minor)
+  demo         extra      1.0.0      update-available    -> 1.1.0 (minor) [origin external]
+--- docker available: true ---
+
+### TestCheckSaysWhereAnInheritedImageCameFromWithoutAnUpdate
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestCheckSaysWhereAnInheritedImageCameFromWithoutAnUpdate
+$ stackmon check
+--- stdout ---
+STACK  SERVICE  VERSION  STATUS       DETAIL
+demo   web      1.0.0    not-running  no running container; image inherited from a YAML merge key; bump will not rewrite it
+--- exit 0 ---
+
+### TestBumpRefusesToRewriteAnInheritedImage
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesToRewriteAnInheritedImage
+$ stackmon bump demo
+--- stdout ---
+bumped demo/api: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- stderr ---
+skipped: bump: demo/web: the image is inherited through a YAML merge key; its text lives in an anchor
+--- exit 0 ---
+### TestBumpRefusesToRewriteAnInheritedImage
+compose file after the bump:
+x-base: &base
+  image: REGISTRY/app:1.0.0
+services:
+  web:
+    <<: *base
+  api:
+    image: REGISTRY/app:1.1.0
+
+
+### TestBumpDryRunPreviewsOnlyTheRewritableService
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpDryRunPreviewsOnlyTheRewritableService
+$ stackmon bump demo --dry-run
+--- stdout ---
+--- ROOT/srv/demo/compose.yaml
++++ ROOT/srv/demo/compose.yaml
+-    image: REGISTRY/app:1.0.0
++    image: REGISTRY/app:1.1.0
+--- stderr ---
+skipped: bump: demo/web: the image is inherited through a YAML merge key; its text lives in an anchor
+--- exit 0 ---
+
+### TestBumpRefusesToRewriteASharedAnchor
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesToRewriteASharedAnchor
+$ stackmon bump demo
+--- stdout ---
+nothing to bump
+--- stderr ---
+skipped: bump: demo/api: the image is an alias of an anchor; its text lives with the anchor
+skipped: bump: demo/web: the image literal is shared with another service; rewriting it would change that service too
+--- exit 0 ---
+### TestBumpRefusesToRewriteASharedAnchor
+compose file after the refused bump:
+services:
+  web:
+    image: &shared REGISTRY/app:1.0.0
+  api:
+    image: *shared
+
+
+### TestBumpRefusesToRewriteAnExtendedService
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRefusesToRewriteAnExtendedService
+$ stackmon bump demo
+--- stdout ---
+nothing to bump
+--- stderr ---
+skipped: bump: demo/base: the image literal is shared with another service; rewriting it would change that service too
+skipped: bump: demo/web: the image is inherited from another service; its text lives in that service
+--- exit 0 ---
+
+### TestBumpRewritesAnAnchorOnlyItsOwnServiceUses
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestBumpRewritesAnAnchorOnlyItsOwnServiceUses
+$ stackmon bump demo
+--- stdout ---
+bumped demo/web: REGISTRY/app:1.0.0 -> REGISTRY/app:1.1.0
+--- exit 0 ---
+
 ### TestConcurrentEnrollmentsBothSurvive
 $ stackmon enroll ROOT/srv/alpha
 --- stdout ---

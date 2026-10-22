@@ -80,9 +80,6 @@ func newBumpCmd() *cobra.Command {
 					continue
 				}
 				st := parsed[0]
-				if effectiveDigest && svc.Ref.Shape == imageref.ShapeDigestOnly {
-					fmt.Fprintf(cmd.ErrOrStderr(), "notice: %s/%s is already digest-only; digest pinning leaves its shape unchanged\n", st.Name, svc.Name)
-				}
 
 				change, err := bump.PlanWithOptions(st, svc, img, bump.Options{Digest: effectiveDigest})
 				if err != nil {
@@ -91,6 +88,11 @@ func newBumpCmd() *cobra.Command {
 					// candidate whose digest could not be resolved.
 					fmt.Fprintln(cmd.ErrOrStderr(), "skipped:", err)
 					continue
+				}
+				if effectiveDigest && svc.Ref.Shape == imageref.ShapeDigestOnly {
+					// The notice follows the plan: a service that was
+					// refused outright has no shape to speak of.
+					fmt.Fprintf(cmd.ErrOrStderr(), "notice: %s/%s is already digest-only; digest pinning leaves its shape unchanged\n", st.Name, svc.Name)
 				}
 
 				plans = append(plans, plannedChange{stack: st.Name, service: svc.Name, change: change})
