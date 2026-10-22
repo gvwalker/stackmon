@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -19,8 +21,15 @@ func newEnrollCmd() *cobra.Command {
 	var name, running, project string
 
 	cmd := &cobra.Command{
-		Use:   "enroll [<path>]",
+		Use:   "enroll [<path>|<discovered-name>]",
 		Short: "Add a stack to the inventory",
+		Long: "Add one stack by directory, by a unique name shown by discover, or by --running.\n\n" +
+			"An existing directory takes precedence over a discovered name, even when it has\n" +
+			"no Compose file. Only a bare name falls back to discovery; explicit paths such\n" +
+			"as ./name or /srv/name always select a directory. Duplicate names are refused.\n\n" +
+			"Name enrollment preserves the discovered Compose file and does not bind a\n" +
+			"Compose project. Use --project to bind explicitly, or --running <project> to\n" +
+			"enroll and bind a running project. Use --name to override the stack name.",
 		Args: func(_ *cobra.Command, args []string) error {
 			if running != "" {
 				if name != "" {
@@ -32,12 +41,12 @@ func newEnrollCmd() *cobra.Command {
 					return fmt.Errorf("--project cannot be combined with --running")
 				}
 				if len(args) != 0 {
-					return fmt.Errorf("--running cannot be combined with a path")
+					return fmt.Errorf("--running cannot be combined with a path or discovered name")
 				}
 				return nil
 			}
 			if len(args) != 1 {
-				return fmt.Errorf("requires exactly one path unless --running is set")
+				return fmt.Errorf("requires exactly one path or discovered name unless --running is set")
 			}
 			return nil
 		},
@@ -64,17 +73,11 @@ func newEnrollCmd() *cobra.Command {
 				}
 				dir, file, defaultName, bound = candidate.Dir, candidate.File, candidate.Name, candidate.Project
 			} else {
-				var err error
-				dir, err = filepath.Abs(args[0])
+				candidate, err := resolveEnrollment(cmd.Context(), args[0])
 				if err != nil {
 					return err
 				}
-				var ok bool
-				file, ok = discover.FindComposeFile(dir)
-				if !ok {
-					return fmt.Errorf("no compose file in %s (looked for %v)", dir, discover.ComposeFilenames)
-				}
-				defaultName = filepath.Base(dir)
+				dir, file, defaultName = candidate.Dir, candidate.File, candidate.Name
 				bound = project
 				if bound != "" {
 					if err := compose.ValidProjectName(bound); err != nil {
@@ -102,10 +105,58 @@ func newEnrollCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "override the stack name (default: directory basename)")
+	cmd.Flags().StringVar(&name, "name", "", "override the stack name (default: directory basename or discovered name)")
 	cmd.Flags().StringVar(&running, "running", "", "enroll a running Compose project by project name")
 	cmd.Flags().StringVar(&project, "project", "", "bind the stack to this Docker Compose project (default: matched from the paths Docker recorded)")
 	return cmd
+}
+
+func resolveEnrollment(ctx context.Context, arg string) (discover.Candidate, error) {
+	dir, err := filepath.Abs(arg)
+	if err != nil {
+		return discover.Candidate{}, err
+	}
+	// Test the original spelling: cleaning ./name or name/ would turn an
+	// explicit path into a bare name and allow an unintended fallback.
+	_, statErr := os.Stat(dir)
+	bare := arg != "." && arg != ".." && !strings.ContainsRune(arg, filepath.Separator)
+	if !bare || !os.IsNotExist(statErr) {
+		file, ok := discover.FindComposeFile(dir)
+		if !ok {
+			return discover.Candidate{}, fmt.Errorf("no compose file in %s (looked for %v)", dir, discover.ComposeFilenames)
+		}
+		return discover.Candidate{Name: filepath.Base(dir), Dir: dir, File: file}, nil
+	}
+
+	candidates, err := discoveredStacks(ctx)
+	if err != nil {
+		return discover.Candidate{}, err
+	}
+	var matches []discover.Candidate
+	for _, c := range candidates {
+		if c.Name == arg {
+			c.Dir, err = filepath.Abs(c.Dir)
+			if err != nil {
+				return discover.Candidate{}, err
+			}
+			matches = append(matches, c)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) == 0 {
+		return discover.Candidate{}, fmt.Errorf("no discovered stack named %q; run 'stackmon discover', enroll a directory with 'stackmon enroll /path/to/stack', or use 'stackmon enroll --running <project>'", arg)
+	}
+	var alternatives []string
+	for _, c := range matches {
+		command := "stackmon enroll '" + strings.ReplaceAll(c.Dir, "'", "'\\''") + "'"
+		if c.Project != "" {
+			command = fmt.Sprintf("stackmon enroll --running %q", c.Project)
+		}
+		alternatives = append(alternatives, fmt.Sprintf("  %s: %s", filepath.Join(c.Dir, c.File), command))
+	}
+	return discover.Candidate{}, fmt.Errorf("discovered stack name %q is ambiguous; choose an explicit directory or running project:\n%s", arg, strings.Join(alternatives, "\n"))
 }
 
 func newUnenrollCmd() *cobra.Command {

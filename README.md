@@ -60,10 +60,11 @@ go install github.com/gvwalker/stackmon/cmd/stackmon@latest
    stackmon discover
    ```
 
-3. Enroll the stack you want to monitor. Use a path for a stopped or filesystem-only stack, or a Compose project name for a running stack:
+3. Enroll the stack you want to monitor by its unique discovered name or directory. Use `--running` to also bind a running Compose project:
 
    ```sh
    stackmon enroll /srv/compose/traefik
+   stackmon enroll zennotes
    stackmon enroll --running media
    ```
 
@@ -98,6 +99,7 @@ Lists Compose stacks found below configured `roots` and in currently running Com
 ### `enroll`, `unenroll`, `inventory list`, and `inventory set-project`
 
 ```sh
+stackmon enroll zennotes
 stackmon enroll /srv/compose/traefik
 stackmon enroll /srv/compose/another-traefik --name edge-traefik
 stackmon enroll /srv/compose/traefik --project traefik-prod
@@ -108,7 +110,11 @@ stackmon inventory set-project edge-traefik --clear
 stackmon unenroll traefik
 ```
 
-`enroll --running <project>` resolves the Compose project's working directory and Compose file from labels on its running containers. It requires Docker and cannot be combined with a path. An enrolled stack is identified by its name and absolute Compose path. The default name for path enrollment is the directory basename; use `--name` when two paths have the same basename.
+`enroll <discovered-name>` resolves a unique name shown by `discover` from configured roots and running Compose containers. It enrolls that exact Compose file, including a nonstandard filename reported by Docker. Discovery remains read-only, and enrollment adds only the selected stack. Name enrollment does not create a Project Binding; use `--project` to bind explicitly.
+
+An existing directory takes precedence over a discovered name. If `./zennotes` exists but has no Compose file, `enroll zennotes` reports that directory error. Explicit paths such as `./zennotes`, `zennotes/`, and `/srv/compose/zennotes` always select a directory and never fall back to discovery. Only a bare name with no existing directory is looked up. Duplicate discovered names are refused with explicit enrollment commands for each location; unknown names include discovery, directory, and `--running` guidance. Failed resolution leaves the Inventory unchanged. As with `discover`, an unavailable Docker socket permits root discovery, while a daemon that answers with an error aborts discovery rather than selecting from partial results.
+
+`enroll --running <project>` resolves the Compose project's working directory and Compose file from labels on its running containers. It requires Docker and cannot be combined with a positional directory or discovered name. An enrolled stack is identified by its name and absolute Compose path. The default name is the directory basename for path enrollment, or the discovered name for name enrollment; use `--name` to override it.
 
 A stack's name is a display name. Docker Compose derives its project name from the directory, from `name:` in the compose file, or from `docker compose -p`, and `--name` gives the stack yet another name, so the enrolled name is not evidence of which project is running. Stackmon therefore matches a stack to a running project by the working directory and compose file Compose recorded on that project's containers, comparing them as paths.
 
@@ -241,7 +247,7 @@ By default stackmon loads `~/.config/stackmon/config.toml`. A missing configurat
 
 
 ```toml
-# Roots used only by `discover`.
+# Roots used by `discover` and enrollment by discovered name.
 roots = ["/srv/compose", "/opt/stacks"]
 
 # Maximum simultaneous registry probes. Default: 8. Must be positive.
@@ -296,7 +302,7 @@ A service can have several running replicas, and they need not agree. Every repl
 A Docker socket is optional. If it is absent or unreadable, stackmon produces a file-and-registry report without running-container comparisons and states that limitation in the output. Set `STACKMON_DOCKER_SOCKET` to read a daemon on a non-default path, such as a rootless Docker socket. Docker credentials are read from `~/.docker/config.json`, including configured credential helpers; stackmon stores no registry credentials. Set `STACKMON_GITHUB_API` to point the release-notes and self-update lookups at a GitHub Enterprise API root.
 
 - Monitoring begins only after explicit enrollment. A new directory under a configured root or a newly observed running container never silently joins checks.
-- `discover` combines configured-root results with running Compose projects when Docker is available. A Docker-only stack may be enrolled with `enroll --running <project>`.
+- `discover` combines configured-root results with running Compose projects when Docker is available. Enroll a unique discovered name with `enroll <name>`, or use `enroll --running <project>` to also bind a running project.
 - Running state is read from the Compose project a stack is bound or matched to, and Docker is only ever read: stackmon does not start, stop, or re-create a container.
 - Stack paths may sit outside discovery roots; roots are a discovery convenience, not an enrollment restriction.
 - Registry requests are concurrent up to `concurrency`, and repeated image references are deduplicated within a check.

@@ -2108,7 +2108,7 @@ edgebox  ROOT/other/traefik/compose.yaml  auto     DATE
 ### TestEnrollRunningRejectsAmbiguousArguments
 $ stackmon enroll ROOT/srv/media --running media
 --- stderr ---
-error: --running cannot be combined with a path
+error: --running cannot be combined with a path or discovered name
 --- exit 1 ---
 
 ### TestEnrollRunningRejectsAmbiguousArguments
@@ -2324,6 +2324,238 @@ warning: directory: compose: reading ROOT/srv/directory/.env: read ROOT/srv/dire
 $ stackmon check --json
   good         web        1.0.0      update-available    -> 1.1.0 (minor)
 --- docker available: true ---
+
+### TestEnrollDiscoveredName
+$ stackmon discover
+--- stdout ---
+NAME       STATE      PATH
+untouched  available  ROOT/srv/untouched/compose.yaml
+zennotes   available  ROOT/srv/zennotes/compose.yaml
+--- exit 0 ---
+
+### TestEnrollDiscoveredName
+$ stackmon enroll zennotes
+--- stdout ---
+enrolled zennotes (ROOT/srv/zennotes/compose.yaml)
+--- exit 0 ---
+### TestEnrollDiscoveredName
+inventory: name=zennotes file=ROOT/srv/zennotes/compose.yaml project=""
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon discover
+--- stdout ---
+NAME             STATE      PATH
+running-project  available  ROOT/declarations/production.yml
+--- exit 0 ---
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon enroll running-project
+--- stdout ---
+enrolled running-project (ROOT/declarations/production.yml)
+--- exit 0 ---
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+inventory: name=running-project file=ROOT/declarations/production.yml project=""
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon unenroll running-project
+--- stdout ---
+unenrolled running-project
+--- exit 0 ---
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon enroll running-project --name display
+--- stdout ---
+enrolled display (ROOT/declarations/production.yml)
+--- exit 0 ---
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+inventory: name=display file=ROOT/declarations/production.yml project=""
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon unenroll display
+--- stdout ---
+unenrolled display
+--- exit 0 ---
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon enroll running-project --name bound --project explicit-project
+--- stdout ---
+enrolled bound (ROOT/declarations/production.yml)
+bound to Compose project explicit-project
+--- exit 0 ---
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+inventory: name=bound file=ROOT/declarations/production.yml project="explicit-project"
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon unenroll bound
+--- stdout ---
+unenrolled bound
+--- exit 0 ---
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon enroll --running running-project
+--- stdout ---
+enrolled running-project (ROOT/declarations/production.yml)
+bound to Compose project running-project
+--- exit 0 ---
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+inventory: name=running-project file=ROOT/declarations/production.yml project="running-project"
+
+### TestEnrollDiscoveredNamePreservesDockerFileAndOverrides
+$ stackmon unenroll running-project
+--- stdout ---
+unenrolled running-project
+--- exit 0 ---
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll local --name local-0
+--- stdout ---
+enrolled local-0 (ROOT/unrelated/local/compose.yml)
+--- exit 0 ---
+### TestEnrollDiscoveredNameDirectoryPrecedence
+inventory: name=local-0 file=ROOT/unrelated/local/compose.yml project=""
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll ./local --name local-1
+--- stdout ---
+enrolled local-1 (ROOT/unrelated/local/compose.yml)
+--- exit 0 ---
+### TestEnrollDiscoveredNameDirectoryPrecedence
+inventory: name=local-1 file=ROOT/unrelated/local/compose.yml project=""
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll ROOT/unrelated/local --name local-2
+--- stdout ---
+enrolled local-2 (ROOT/unrelated/local/compose.yml)
+--- exit 0 ---
+### TestEnrollDiscoveredNameDirectoryPrecedence
+inventory: name=local-2 file=ROOT/unrelated/local/compose.yml project=""
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll empty
+--- stderr ---
+error: no compose file in ROOT/unrelated/empty (looked for [compose.yaml compose.yml docker-compose.yaml docker-compose.yml])
+--- exit 1 ---
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll ./missing
+--- stderr ---
+error: no compose file in ROOT/unrelated/missing (looked for [compose.yaml compose.yml docker-compose.yaml docker-compose.yml])
+--- exit 1 ---
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll missing/
+--- stderr ---
+error: no compose file in ROOT/unrelated/missing (looked for [compose.yaml compose.yml docker-compose.yaml docker-compose.yml])
+--- exit 1 ---
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll sub/../missing
+--- stderr ---
+error: no compose file in ROOT/unrelated/missing (looked for [compose.yaml compose.yml docker-compose.yaml docker-compose.yml])
+--- exit 1 ---
+
+### TestEnrollDiscoveredNameDirectoryPrecedence
+$ stackmon enroll ROOT/unrelated/missing
+--- stderr ---
+error: no compose file in ROOT/unrelated/missing (looked for [compose.yaml compose.yml docker-compose.yaml docker-compose.yml])
+--- exit 1 ---
+### TestEnrollDiscoveredNameDirectoryPrecedence
+failed directory enrollments left inventory unchanged
+
+### TestEnrollDiscoveredNameRejectsAmbiguousAndUnknown
+$ stackmon enroll ROOT/srv/seed
+--- stdout ---
+enrolled seed (ROOT/srv/seed/compose.yaml)
+--- exit 0 ---
+
+### TestEnrollDiscoveredNameRejectsAmbiguousAndUnknown
+$ stackmon discover
+--- stdout ---
+NAME       STATE      PATH
+duplicate  available  ROOT/srv/one/duplicate/compose.yml
+duplicate  available  ROOT/srv/two/duplicate/compose.yaml
+seed       enrolled   ROOT/srv/seed/compose.yaml
+--- exit 0 ---
+
+### TestEnrollDiscoveredNameRejectsAmbiguousAndUnknown
+$ stackmon enroll duplicate
+--- stderr ---
+error: discovered stack name "duplicate" is ambiguous; choose an explicit directory or running project:
+  ROOT/srv/one/duplicate/compose.yml: stackmon enroll 'ROOT/srv/one/duplicate'
+  ROOT/srv/two/duplicate/compose.yaml: stackmon enroll 'ROOT/srv/two/duplicate'
+--- exit 1 ---
+
+### TestEnrollDiscoveredNameRejectsAmbiguousAndUnknown
+$ stackmon enroll unknown
+--- stderr ---
+error: no discovered stack named "unknown"; run 'stackmon discover', enroll a directory with 'stackmon enroll /path/to/stack', or use 'stackmon enroll --running <project>'
+--- exit 1 ---
+### TestEnrollDiscoveredNameRejectsAmbiguousAndUnknown
+ambiguous and unknown names left inventory unchanged
+
+### TestEnrollDiscoveredNameUsesDiscoveryMerge
+$ stackmon discover
+--- stdout ---
+NAME       STATE      PATH
+root-name  available  ROOT/srv/root-name/compose.yaml
+--- exit 0 ---
+
+### TestEnrollDiscoveredNameUsesDiscoveryMerge
+$ stackmon enroll root-name
+--- stdout ---
+enrolled root-name (ROOT/srv/root-name/compose.yaml)
+--- exit 0 ---
+### TestEnrollDiscoveredNameUsesDiscoveryMerge
+inventory: name=root-name file=ROOT/srv/root-name/compose.yaml project=""
+
+### TestEnrollDiscoveredNameDockerAvailability/daemon-present-false
+$ stackmon enroll demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestEnrollDiscoveredNameDockerAvailability/daemon-present-false
+inventory: name=demo file=ROOT/srv/demo/compose.yaml project=""
+
+### TestEnrollDiscoveredNameDockerAvailability/daemon-present-true
+$ stackmon enroll demo
+--- stderr ---
+error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 1 ---
+
+### TestEnrollDiscoveredNameHelp
+$ stackmon enroll --help
+--- stdout ---
+Add one stack by directory, by a unique name shown by discover, or by --running.
+
+An existing directory takes precedence over a discovered name, even when it has
+no Compose file. Only a bare name falls back to discovery; explicit paths such
+as ./name or /srv/name always select a directory. Duplicate names are refused.
+
+Name enrollment preserves the discovered Compose file and does not bind a
+Compose project. Use --project to bind explicitly, or --running <project> to
+enroll and bind a running project. Use --name to override the stack name.
+
+Usage:
+  stackmon enroll [<path>|<discovered-name>] [flags]
+
+Flags:
+  -h, --help             help for enroll
+      --name string      override the stack name (default: directory basename or discovered name)
+      --project string   bind the stack to this Docker Compose project (default: matched from the paths Docker recorded)
+      --running string   enroll a running Compose project by project name
+
+Global Flags:
+      --config string      path to config.toml (default ~/.config/stackmon/config.toml)
+      --inventory string   path to inventory.json (default ~/.local/state/stackmon/inventory.json)
+--- exit 0 ---
+
+### TestEnrollDiscoveredNameRelativeRootPersistsAbsoluteDirectory
+$ stackmon enroll demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+### TestEnrollDiscoveredNameRelativeRootPersistsAbsoluteDirectory
+inventory: name=demo file=ROOT/srv/demo/compose.yaml project=""
 
 ### TestCheckReportsInheritedImagesAndTheirSiblings
 $ stackmon enroll ROOT/srv/demo
@@ -3344,14 +3576,22 @@ Global Flags:
 ### TestBindingCommandsDocumentThemselves
 $ stackmon enroll --help
 --- stdout ---
-Add a stack to the inventory
+Add one stack by directory, by a unique name shown by discover, or by --running.
+
+An existing directory takes precedence over a discovered name, even when it has
+no Compose file. Only a bare name falls back to discovery; explicit paths such
+as ./name or /srv/name always select a directory. Duplicate names are refused.
+
+Name enrollment preserves the discovered Compose file and does not bind a
+Compose project. Use --project to bind explicitly, or --running <project> to
+enroll and bind a running project. Use --name to override the stack name.
 
 Usage:
-  stackmon enroll [<path>] [flags]
+  stackmon enroll [<path>|<discovered-name>] [flags]
 
 Flags:
   -h, --help             help for enroll
-      --name string      override the stack name (default: directory basename)
+      --name string      override the stack name (default: directory basename or discovered name)
       --project string   bind the stack to this Docker Compose project (default: matched from the paths Docker recorded)
       --running string   enroll a running Compose project by project name
 

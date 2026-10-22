@@ -16,8 +16,8 @@ import (
 // CurrentVersion is the on-disk schema version.
 const CurrentVersion = 1
 
-// Stack is one enrolled stack. Name is the directory basename, or whatever
-// --name chose; it is a display name and carries no Docker meaning.
+// Stack is one enrolled stack. Name is the directory basename, the discovered
+// name, or whatever --name chose; it is a display name and carries no Docker meaning.
 type Stack struct {
 	Name string `json:"name"`
 	Dir  string `json:"dir"`
