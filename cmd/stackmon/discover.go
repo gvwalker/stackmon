@@ -12,33 +12,14 @@ import (
 )
 
 func newDiscoverCmd() *cobra.Command {
-	prober := local.New()
 	return &cobra.Command{
 		Use:   "discover",
 		Short: "List compose stacks from configured roots and running containers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := loadConfig()
+			cands, err := discoveredStacks(cmd.Context())
 			if err != nil {
 				return err
 			}
-			inv, _, err := loadInventory()
-			if err != nil {
-				return err
-			}
-
-			rootCandidates, err := discover.Scan(cfg.Roots, inv)
-			if err != nil {
-				return err
-			}
-			var dockerCandidates []discover.Candidate
-			if prober.Available() {
-				containers, err := prober.Containers(context.Background())
-				if err != nil {
-					return err
-				}
-				dockerCandidates = discover.DockerCandidates(containers, inv)
-			}
-			cands := discover.Merge(inv, rootCandidates, dockerCandidates)
 
 			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(tw, "NAME\tSTATE\tPATH")
@@ -52,4 +33,31 @@ func newDiscoverCmd() *cobra.Command {
 			return tw.Flush()
 		},
 	}
+}
+
+// discoveredStacks supplies the same names and declarations to discovery and
+// enrollment. It performs no inventory mutation and holds no writer lock.
+func discoveredStacks(ctx context.Context) ([]discover.Candidate, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	inv, _, err := loadInventory()
+	if err != nil {
+		return nil, err
+	}
+	rootCandidates, err := discover.Scan(cfg.Roots, inv)
+	if err != nil {
+		return nil, err
+	}
+	var dockerCandidates []discover.Candidate
+	prober := local.New()
+	if prober.Available() {
+		containers, err := prober.Containers(ctx)
+		if err != nil {
+			return nil, err
+		}
+		dockerCandidates = discover.DockerCandidates(containers, inv)
+	}
+	return discover.Merge(inv, rootCandidates, dockerCandidates), nil
 }
