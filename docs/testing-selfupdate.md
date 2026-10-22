@@ -7,6 +7,21 @@ a target owned by 65534:65534, proving that the replacement does not simply
 inherit the updater's identity. A normal account with supplementary groups
 exercises a different permitted group; otherwise it checks the current IDs.
 
+Download scenarios in `e2e/update_test.go` exercise the real 128 MiB asset limit
+without allocating an oversized fixture in memory. They verify an exact-limit
+asset's installed size and SHA-256, refusal of one extra byte with both declared
+length and chunked responses, and refusal of a truncated body with inaccurate
+`Content-Length`. Paused chunked responses prove bytes reach the temporary file
+before EOF while the executable remains unchanged; completing the response either
+installs the verified release or refuses a checksum mismatch. Failure scenarios
+check the original executable's bytes or SHA-256 and absence of temporary files.
+Absent or unsupported GitHub asset digests remain untrusted.
+
+The retained transcript records CLI results, streaming-before-EOF observations,
+unchanged-executable verdicts, size/digest verification, and cleanup outcomes.
+These scenarios use local HTTP servers and a disposable copy of the CLI; no
+real release download or installed executable is involved.
+
 Run the complete suite and regenerate the retained command transcript:
 
 ```sh
