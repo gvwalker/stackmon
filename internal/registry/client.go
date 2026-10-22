@@ -64,6 +64,16 @@ func (i Image) Revision() string { return i.Label(LabelRevision) }
 // Source is org.opencontainers.image.source, the upstream repository URL.
 func (i Image) Source() string { return i.Label(LabelSource) }
 
+// probeBudget bounds one registry operation -- an Inspect or a Tags call --
+// from its first request to its last, including every response body it
+// reads along the way: a registry that accepts a request and then stalls is
+// as unreachable as one that refuses it, and must end as a bounded failure
+// rather than a run that hangs. It is a ceiling, not an extension: an
+// earlier caller deadline or cancellation always wins. The library's own
+// retries run inside the same budget -- once the deadline passes, every
+// further attempt fails immediately, so backoff sleeps are the only spillover.
+var probeBudget = 30 * time.Second
+
 // Client fetches image metadata and tag lists.
 type Client struct {
 	keychain authn.Keychain
@@ -85,12 +95,15 @@ func (c *Client) options(ctx context.Context) []remote.Option {
 // Inspect fetches the manifest digest and config blob for a reference. The
 // reference may carry a tag, a digest, or both. When it names a
 // multi-platform index, the config blob is read from the child serving
-// platform.
+// platform. The whole operation -- ping, manifest, and config requests --
+// runs inside one probeBudget.
 func (c *Client) Inspect(ctx context.Context, ref string, platform v1.Platform) (Image, error) {
 	parsed, err := name.ParseReference(ref)
 	if err != nil {
 		return Image{}, fmt.Errorf("registry: parsing %s: %w", ref, err)
 	}
+	ctx, cancel := context.WithTimeout(ctx, probeBudget)
+	defer cancel()
 
 	opts := append(c.options(ctx), remote.WithPlatform(platform))
 	desc, err := remote.Get(parsed, opts...)
@@ -155,12 +168,14 @@ func unpublishedPlatform(desc *remote.Descriptor, want v1.Platform) error {
 	return fmt.Errorf("no image for platform %s: the index publishes %s", want, strings.Join(published, ", "))
 }
 
-// Tags lists every tag in a repository.
+// Tags lists every tag in a repository, within one probeBudget.
 func (c *Client) Tags(ctx context.Context, repo string) ([]string, error) {
 	parsed, err := name.NewRepository(repo)
 	if err != nil {
 		return nil, fmt.Errorf("registry: parsing repository %s: %w", repo, err)
 	}
+	ctx, cancel := context.WithTimeout(ctx, probeBudget)
+	defer cancel()
 	tags, err := remote.List(parsed, c.options(ctx)...)
 	if err != nil {
 		return nil, fmt.Errorf("registry: listing tags for %s: %w", repo, err)

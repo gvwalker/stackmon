@@ -214,6 +214,9 @@ func newEnv(t *testing.T) *env {
 	e.hits = &requestLog{next: ggcrr.New(ggcrr.Logger(log.New(io.Discard, "", 0)))}
 	srv := httptest.NewServer(e.hits)
 	t.Cleanup(srv.Close)
+	// Registered after srv.Close, so it runs before it: stalled handlers
+	// must be released before the server waits on them to finish.
+	t.Cleanup(e.hits.releaseStalls)
 	u, err := url.Parse(srv.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +238,9 @@ func (e *env) composeFileOf(project string) (string, bool) {
 
 // requestLog counts registry requests by method and path, so a scenario can
 // prove the run probed a shared reference once, and that it never listed tags
-// for a tag stackmon cannot reason about.
+// for a tag stackmon cannot reason about. It also carries the two ways a
+// scenario can make the registry misbehave on purpose: blocked paths (a
+// failure answer) and stalls (no answer at all).
 type requestLog struct {
 	next http.Handler
 
@@ -243,6 +248,11 @@ type requestLog struct {
 	paths   []string
 	blocked []string
 	held    []*gate
+	// stalls maps a path prefix to the way requests under it are stranded.
+	stalls map[string]stallMode
+	// unstall, when the first stall is registered, is closed by cleanup so
+	// parked handlers return and the test server can close.
+	unstall chan struct{}
 }
 
 func (l *requestLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +268,10 @@ func (l *requestLog) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	l.mu.Unlock()
 
+	if mode, release, stalled := l.stallFor(r.URL.Path); stalled {
+		serveStall(w, mode, release)
+		return
+	}
 	if gate != nil {
 		// Freeze the run with the file it read but not yet written, so a
 		// scenario can change that file first.
@@ -318,6 +332,84 @@ func (g *gate) wait(t *testing.T) {
 }
 
 func (g *gate) open() { close(g.release) }
+
+// ---------------------------------------------------------------------------
+// Stalls
+// ---------------------------------------------------------------------------
+
+// stallMode is one way a server can strand a client mid-exchange: never
+// answer at all, or promise a body and never finish it.
+type stallMode int
+
+const (
+	// stallHeaders accepts the request and never answers it.
+	stallHeaders stallMode = iota
+	// stallBody answers with a length and the first byte of the promised
+	// body, then nothing more.
+	stallBody
+)
+
+// serveStall writes exactly as far as the mode gets, then parks the handler
+// until release. Parking -- rather than returning an error -- is what leaves
+// the client precisely where a request deadline has to rescue it; the
+// release channel exists so a stalled server still lets the test close.
+func serveStall(w http.ResponseWriter, mode stallMode, release <-chan struct{}) {
+	switch mode {
+	case stallHeaders:
+		<-release
+	case stallBody:
+		w.Header().Set("Content-Length", "4096")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{"))
+		// Flush, or the server buffers the partial write and the stall is
+		// merely a slower header stall: the promised length and the first
+		// byte have to reach the client for the body read to be the thing
+		// that stalls.
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+	}
+}
+
+// stall strands every request under prefix in mode.
+func (l *requestLog) stall(prefix string, mode stallMode) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.stalls == nil {
+		l.stalls = map[string]stallMode{}
+		l.unstall = make(chan struct{})
+	}
+	l.stalls[prefix] = mode
+}
+
+// stallFor reports the stall a path is stranded in, and the channel that
+// releases its handlers.
+func (l *requestLog) stallFor(path string) (stallMode, <-chan struct{}, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for prefix, mode := range l.stalls {
+		if strings.HasPrefix(path, prefix) {
+			return mode, l.unstall, true
+		}
+	}
+	return 0, nil, false
+}
+
+// releaseStalls lets every parked handler return. Registered by newEnv
+// before the server's own cleanup, so closing the server never waits on a
+// handler the scenario stranded on purpose.
+func (l *requestLog) releaseStalls() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.unstall != nil {
+		select {
+		case <-l.unstall:
+		default:
+			close(l.unstall)
+		}
+	}
+}
 
 // block makes the registry fail every request under prefix while leaving its
 // tag list intact.
@@ -468,11 +560,18 @@ type pending struct {
 // start runs the binary in the background. The caller must wait on it.
 func (e *env) start(args ...string) *pending { return e.startWith(nil, args...) }
 
-// startWith runs the binary in the background with env overrides that apply to
-// this process alone, so two concurrent runs can sit at different points.
+// startWith runs the dev binary in the background with env overrides that
+// apply to this process alone, so two concurrent runs can sit at different
+// points.
 func (e *env) startWith(over map[string]string, args ...string) *pending {
+	return e.startAs(over, devBinary, args...)
+}
+
+// startAs runs a chosen build of the binary in the background: a deadline
+// scenario waits on a binary other than the dev one.
+func (e *env) startAs(over map[string]string, bin string, args ...string) *pending {
 	e.t.Helper()
-	cmd := e.command(over, devBinary, args...)
+	cmd := e.command(over, bin, args...)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Start(); err != nil {
@@ -1571,13 +1670,24 @@ type fakeGitHub struct {
 	// files serves anything else the release points at (asset downloads)
 	// by path.
 	files map[string][]byte
+	// stalls maps a path prefix to the way requests under it are stranded.
+	stalls map[string]stallMode
+	// unstall, when the first stall is registered, is closed by cleanup so
+	// parked handlers return and the test server can close.
+	unstall chan struct{}
+	// hits counts requests by path, so a scenario can prove which GitHub
+	// endpoints a run actually reached.
+	hits map[string]int
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
 	t.Helper()
-	g := &fakeGitHub{releases: map[string][]ghRelease{}, files: map[string][]byte{}}
+	g := &fakeGitHub{releases: map[string][]ghRelease{}, files: map[string][]byte{}, hits: map[string]int{}}
 	g.server = httptest.NewServer(http.HandlerFunc(g.serve))
 	t.Cleanup(g.server.Close)
+	// Registered after g.server.Close, so it runs before it: stalled
+	// handlers must be released before the server waits on them to finish.
+	t.Cleanup(g.releaseStalls)
 	return g
 }
 
@@ -1603,8 +1713,65 @@ func (g *fakeGitHub) file(path string, body []byte) string {
 	return g.server.URL + path
 }
 
+// stall strands every request under prefix in mode. The returned URL is the
+// server's address for path, for pointing a release asset at a stall.
+func (g *fakeGitHub) stall(prefix string, mode stallMode) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.stalls == nil {
+		g.stalls = map[string]stallMode{}
+		g.unstall = make(chan struct{})
+	}
+	g.stalls[prefix] = mode
+}
+
+// stallLocked is the stall lookup for a caller already holding the mutex.
+func (g *fakeGitHub) stallLocked(path string) (stallMode, bool) {
+	for prefix, mode := range g.stalls {
+		if strings.HasPrefix(path, prefix) {
+			return mode, true
+		}
+	}
+	return 0, false
+}
+
+// releaseStalls lets every parked handler return. Registered by
+// newFakeGitHub before the server's own cleanup, so closing the server never
+// waits on a handler the scenario stranded on purpose.
+func (g *fakeGitHub) releaseStalls() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.unstall != nil {
+		select {
+		case <-g.unstall:
+		default:
+			close(g.unstall)
+		}
+	}
+}
+
+// count is how many requests reached paths beginning with prefix.
+func (g *fakeGitHub) count(prefix string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	n := 0
+	for p, c := range g.hits {
+		if strings.HasPrefix(p, prefix) {
+			n += c
+		}
+	}
+	return n
+}
+
 func (g *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
+	g.hits[r.URL.Path]++
+	if mode, stalled := g.stallLocked(r.URL.Path); stalled {
+		release := g.unstall
+		g.mu.Unlock()
+		serveStall(w, mode, release)
+		return
+	}
 	defer g.mu.Unlock()
 
 	if body, ok := g.files[r.URL.Path]; ok {

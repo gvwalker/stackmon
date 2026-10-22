@@ -298,6 +298,7 @@ A Docker socket is optional. If it is absent or unreadable, stackmon produces a 
 - Running state is read from the Compose project a stack is bound or matched to, and Docker is only ever read: stackmon does not start, stop, or re-create a container.
 - Stack paths may sit outside discovery roots; roots are a discovery convenience, not an enrollment restriction.
 - Registry requests are concurrent up to `concurrency`, and repeated image references are deduplicated within a check.
+- Every network operation carries a request budget: 30 seconds for a registry probe or a GitHub API call, 10 minutes for a release-asset download. The budget covers the whole exchange — connecting, waiting for headers, and reading the response body — so a server that answers and then stalls produces a bounded failure with the reason in the output, never a run that hangs. An earlier caller deadline always wins.
 - Floating or opaque tags are tracked for digest changes unless a safe candidate constraint exists. Stackmon does not guess a major-version migration.
 - The default exit code is `0` even when updates or drift exist. Exit `1` means stackmon itself could not complete, such as an invalid configuration or unreadable inventory. Exit `2` is reserved for `--fail-on-update`; exit `3` is returned by `--fail-on-incomplete`, and when both would apply `2` wins.
 - Stackmon does not cache registry responses, notify external systems, schedule runs, manage Kubernetes or Swarm workloads, or deploy changes.

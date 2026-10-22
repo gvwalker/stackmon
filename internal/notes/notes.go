@@ -6,13 +6,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/google/go-github/v66/github"
+
+	"github.com/gvwalker/stackmon/internal/ghclient"
 )
 
 // Release is one upstream release.
@@ -29,22 +30,11 @@ type Client struct {
 	gh *github.Client
 }
 
-// New returns a Client. An empty token means unauthenticated access, which
-// GitHub rate-limits to 60 requests per hour.
+// New returns a Client, configured with the shared GitHub client policy
+// (token, alternate API root, and a request budget that bounds each
+// exchange end to end, a stalled answer included).
 func New(token string) *Client {
-	gh := github.NewClient(nil)
-	if token != "" {
-		gh = gh.WithAuthToken(token)
-	}
-	// STACKMON_GITHUB_API names an alternate API root: GitHub Enterprise, a
-	// mirror, or a test fixture. An unusable value is ignored rather than
-	// fatal -- a typo in an environment variable must not stop the report.
-	if raw := os.Getenv("STACKMON_GITHUB_API"); raw != "" {
-		if u, err := url.Parse(strings.TrimSuffix(raw, "/") + "/"); err == nil {
-			gh.BaseURL = u
-		}
-	}
-	return &Client{gh: gh}
+	return &Client{gh: ghclient.New(token)}
 }
 
 // RepoFromSource converts an org.opencontainers.image.source URL into
@@ -91,11 +81,15 @@ func Between(releases []Release, from, to string) []Release {
 }
 
 // Between fetches a repository's releases and filters them to the range.
+// The whole release walk -- every page of it -- runs inside one budget, so
+// paging through a stalling server cannot outlast a single request's.
 func (c *Client) Between(ctx context.Context, repo, from, to string) ([]Release, error) {
 	owner, name, found := strings.Cut(repo, "/")
 	if !found {
 		return nil, fmt.Errorf("notes: %q is not an owner/name repository", repo)
 	}
+	ctx, cancel := context.WithTimeout(ctx, ghclient.Metadata)
+	defer cancel()
 
 	var all []Release
 	opts := &github.ListOptions{PerPage: 100}
