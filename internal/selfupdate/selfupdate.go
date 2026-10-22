@@ -25,6 +25,10 @@ import (
 // Repo is the stackmon GitHub repository.
 const Repo = "gvwalker/stackmon"
 
+// maxAssetSize bounds disk usage and download work even for chunked responses
+// or misleading Content-Length headers. 128 MiB leaves room for binary growth.
+const maxAssetSize int64 = 128 << 20
+
 // Release is a stackmon release.
 type Release struct {
 	Tag  string
@@ -146,14 +150,6 @@ func (c *Client) Install(ctx context.Context, tag string) error {
 		return fmt.Errorf("selfupdate: release %s reports no sha256 digest for %s, so it cannot be verified", tag, assetName)
 	}
 
-	data, err := c.fetch(ctx, assetURL)
-	if err != nil {
-		return fmt.Errorf("selfupdate: downloading %s: %w", assetName, err)
-	}
-	if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != want {
-		return fmt.Errorf("selfupdate: checksum mismatch for %s", assetName)
-	}
-
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("selfupdate: locating running binary: %w", err)
@@ -161,33 +157,61 @@ func (c *Client) Install(ctx context.Context, tag string) error {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	return install(exe, data)
+	// Keep the download on the same filesystem as the executable so the
+	// verified file can be renamed into place without another copy. Until
+	// verification succeeds, it stays private and is never made executable.
+	tmp, err := os.CreateTemp(filepath.Dir(exe), ".stackmon-update-*")
+	if err != nil {
+		return fmt.Errorf("selfupdate: creating temp file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	got, err := c.fetch(ctx, assetURL, tmp)
+	if err != nil {
+		return fmt.Errorf("selfupdate: downloading %s: %w", assetName, err)
+	}
+	if got != want {
+		return fmt.Errorf("selfupdate: checksum mismatch for %s", assetName)
+	}
+	return install(exe, tmp)
 }
 
-// fetch downloads one release asset. The client's budget bounds the whole
-// exchange -- headers and every byte of the body -- so a download that
-// stalls fails with the deadline rather than waiting forever.
-func (c *Client) fetch(ctx context.Context, url string) ([]byte, error) {
+// fetch streams one release asset into dst while hashing it. The byte limit
+// bounds fast responses, and the client's time budget bounds stalled ones.
+func (c *Client) fetch(ctx context.Context, url string, dst io.Writer) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", url, resp.Status)
+		return "", fmt.Errorf("%s: %s", url, resp.Status)
 	}
-	return io.ReadAll(resp.Body)
+	if resp.ContentLength > maxAssetSize {
+		return "", fmt.Errorf("download exceeds maximum asset size of %d bytes", maxAssetSize)
+	}
+	hash := sha256.New()
+	// Read one extra byte to distinguish an exact-limit asset from a truncated
+	// prefix. Enforce this on the body regardless of the declared length.
+	n, err := io.Copy(io.MultiWriter(dst, hash), io.LimitReader(resp.Body, maxAssetSize+1))
+	if n > maxAssetSize {
+		return "", fmt.Errorf("download exceeds maximum asset size of %d bytes", maxAssetSize)
+	}
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
-// install atomically replaces the file at path with data. Writing to a
-// temp file in the same directory then renaming over path means a process
+// install atomically replaces the file at path with the verified temp file.
+// Renaming a file in the same directory over path means a process
 // still running the old binary keeps its already-open inode, and a reader
-// of path never observes a partially-written file.
-func install(path string, data []byte) error {
+// of path never observes a partially-written file. The caller owns cleanup.
+func install(path string, tmp *os.File) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("selfupdate: reading installed binary metadata: %w", err)
@@ -201,16 +225,6 @@ func install(path string, data []byte) error {
 		return fmt.Errorf("selfupdate: opening install directory: %w", err)
 	}
 	defer dir.Close()
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".stackmon-update-*")
-	if err != nil {
-		return fmt.Errorf("selfupdate: creating temp file: %w", err)
-	}
-	defer os.Remove(tmp.Name())
-	defer tmp.Close()
-
-	if _, err := tmp.Write(data); err != nil {
-		return fmt.Errorf("selfupdate: writing new binary: %w", err)
-	}
 	// Chown can clear special mode bits, so restore mode afterwards. A failed
 	// chown is harmless only when the file already has exactly the required IDs.
 	if err := tmp.Chown(int(owner.Uid), int(owner.Gid)); err != nil {

@@ -4192,6 +4192,99 @@ updating stackmon dev -> v9.9.9...
 --- stderr ---
 error: selfupdate: checksum mismatch for stackmon-linux-amd64
 --- exit 1 ---
+### TestUpdateRefusesAnUnverifiedRelease
+checksum mismatch refused; installed binary unchanged; no update temporary files remain
+
+### TestUpdateBoundsAssetSize/exact_limit
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+updated to v9.9.9
+--- exit 0 ---
+### TestUpdateBoundsAssetSize/exact_limit
+exact 128 MiB asset installed; size and SHA-256 verified
+### TestUpdateBoundsAssetSize/exact_limit
+GitHub release requests=2; no update temporary files remain
+
+### TestUpdateBoundsAssetSize/oversized_declared_length
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: downloading stackmon-linux-amd64: download exceeds maximum asset size of 134217728 bytes
+--- exit 1 ---
+### TestUpdateBoundsAssetSize/oversized_declared_length
+128 MiB + 1 byte refused; original executable SHA-256 unchanged
+### TestUpdateBoundsAssetSize/oversized_declared_length
+GitHub release requests=2; no update temporary files remain
+
+### TestUpdateBoundsAssetSize/oversized_chunked
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: downloading stackmon-linux-amd64: download exceeds maximum asset size of 134217728 bytes
+--- exit 1 ---
+### TestUpdateBoundsAssetSize/oversized_chunked
+128 MiB + 1 byte refused; original executable SHA-256 unchanged
+### TestUpdateBoundsAssetSize/oversized_chunked
+GitHub release requests=2; no update temporary files remain
+### TestUpdateStreamsBeforeVerification/valid=true
+chunked bytes staged before response EOF=true; original executable unchanged before verification
+
+### TestUpdateStreamsBeforeVerification/valid=true
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+updated to v9.9.9
+--- exit 0 ---
+
+### TestUpdateStreamsBeforeVerification/valid=true
+$ stackmon --version
+--- stdout ---
+streamed release
+--- exit 0 ---
+### TestUpdateStreamsBeforeVerification/valid=true
+verified replacement installed=true; no update temporary files remain
+### TestUpdateStreamsBeforeVerification/valid=false
+chunked bytes staged before response EOF=true; original executable unchanged before verification
+
+### TestUpdateStreamsBeforeVerification/valid=false
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: checksum mismatch for stackmon-linux-amd64
+--- exit 1 ---
+### TestUpdateStreamsBeforeVerification/valid=false
+verified replacement installed=false; no update temporary files remain
+
+### TestUpdateRefusesATruncatedDownload
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: downloading stackmon-linux-amd64: unexpected EOF
+--- exit 1 ---
+### TestUpdateRefusesATruncatedDownload
+inaccurate Content-Length refused; original executable unchanged; no update temporary files remain
+
+### TestUpdateRefusesAnUnsupportedDigest
+$ stackmon update
+--- stdout ---
+running a dev build; checking for the latest release anyway
+updating stackmon dev -> v9.9.9...
+--- stderr ---
+error: selfupdate: release v9.9.9 reports no sha256 digest for stackmon-linux-amd64, so it cannot be verified
+--- exit 1 ---
+### TestUpdateRefusesAnUnsupportedDigest
+unsupported digest refused without fetching asset; original executable unchanged; no update temporary files remain
 
 ### TestUpdateReportsAMissingAssetForThisPlatform
 $ stackmon update

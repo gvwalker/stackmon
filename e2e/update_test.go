@@ -1,11 +1,17 @@
 package e2e
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // publishStackmonRelease puts a stackmon release on the fake GitHub, with an
@@ -99,6 +105,183 @@ func TestUpdateRefusesAnUnverifiedRelease(t *testing.T) {
 	assertCode(t, "update", got.code, 1, got)
 	assertContains(t, "stderr", got.stderr, "error:", "checksum mismatch")
 	assertEq(t, "binary is untouched", e.read(bin), string(before))
+	assertNoUpdateTemps(t, bin)
+	e.note("checksum mismatch refused; installed binary unchanged; no update temporary files remain")
+}
+
+// Exercise the shipped limit through the CLI, without allocating an oversized
+// payload in the fixture. An exact-limit asset must succeed; one more byte must
+// fail, including when the server omits Content-Length (chunked HTTP/1.1).
+func TestUpdateBoundsAssetSize(t *testing.T) {
+	const limit = 128 << 20
+	for _, tc := range []struct {
+		name    string
+		size    int64
+		chunked bool
+	}{
+		{"exact limit", limit, false},
+		{"oversized declared length", limit + 1, false},
+		{"oversized chunked", limit + 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv(t)
+			h := sha256.New()
+			if _, err := io.CopyN(h, zeroBytes{}, tc.size); err != nil {
+				t.Fatal(err)
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.chunked {
+					w.(http.Flusher).Flush()
+				} else {
+					w.Header().Set("Content-Length", fmt.Sprint(tc.size))
+				}
+				_, _ = io.CopyN(w, zeroBytes{}, tc.size)
+			}))
+			t.Cleanup(srv.Close)
+			e.publishDownload(srv.URL, fmt.Sprintf("sha256:%x", h.Sum(nil)))
+			bin := e.installCopy()
+			before := sum([]byte(e.read(bin)))
+			got := e.runBinary(bin, "update")
+			if tc.size > limit {
+				assertCode(t, "update", got.code, 1, got)
+				assertContains(t, "stderr", got.stderr, "exceeds maximum asset size of 134217728 bytes")
+				assertEq(t, "original executable digest", sum([]byte(e.read(bin))), before)
+				e.note("128 MiB + 1 byte refused; original executable SHA-256 unchanged")
+			} else {
+				assertCode(t, "update", got.code, 0, got)
+				f, err := os.Open(bin)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer f.Close()
+				installed := sha256.New()
+				n, err := io.Copy(installed, f)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertEq(t, "installed bytes", n, tc.size)
+				assertEq(t, "installed SHA-256", fmt.Sprintf("%x", installed.Sum(nil)), fmt.Sprintf("%x", h.Sum(nil)))
+				e.note("exact 128 MiB asset installed; size and SHA-256 verified")
+			}
+			assertNoUpdateTemps(t, bin)
+			e.note("GitHub release requests=%d; no update temporary files remain", e.gh.count("/repos/gvwalker/stackmon/releases"))
+		})
+	}
+}
+
+type zeroBytes struct{}
+
+func (zeroBytes) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+func (e *env) publishDownload(url, digest string) {
+	e.t.Helper()
+	e.gh.publish("gvwalker/stackmon", ghRelease{
+		Tag:    "v9.9.9",
+		Assets: []ghAsset{{Name: assetName(), URL: url, Digest: digest}},
+	})
+}
+
+// A paused chunked response proves bytes reach disk before EOF, and the old
+// executable remains usable until verification completes. Finish with either
+// the valid digest or a mismatch to exercise cleanup of an already-written temp.
+func TestUpdateStreamsBeforeVerification(t *testing.T) {
+	for _, valid := range []bool{true, false} {
+		t.Run(fmt.Sprintf("valid=%t", valid), func(t *testing.T) {
+			e := newEnv(t)
+			payload := []byte("#!/bin/sh\necho streamed release\n#" + strings.Repeat("x", 256<<10) + "\n")
+			sent, resume := make(chan struct{}), make(chan struct{})
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write(payload)
+				w.(http.Flusher).Flush()
+				close(sent)
+				<-resume
+			}))
+			t.Cleanup(srv.Close)
+			// Release the handler before server cleanup, even if an assertion fails.
+			t.Cleanup(func() { close(resume) })
+			digest := "sha256:" + sum(payload)
+			if !valid {
+				digest = "sha256:" + strings.Repeat("0", 64)
+			}
+			e.publishDownload(srv.URL, digest)
+			bin := e.installCopy()
+			before := e.read(bin)
+			pending := e.startAs(nil, bin, "update")
+			select {
+			case <-sent:
+			case <-time.After(10 * time.Second):
+				t.Fatal("download did not reach the body")
+			}
+			streamed := false
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				files, err := filepath.Glob(filepath.Join(filepath.Dir(bin), ".stackmon-update-*"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(files) == 1 {
+					info, err := os.Stat(files[0])
+					if err == nil && info.Size() == int64(len(payload)) {
+						streamed = true
+						break
+					}
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			assertEq(t, "payload on disk before response EOF", streamed, true)
+			assertEq(t, "executable before verification", e.read(bin), before)
+			e.note("chunked bytes staged before response EOF=%t; original executable unchanged before verification", streamed)
+			resume <- struct{}{}
+			got := pending.wait(t)
+			if valid {
+				assertCode(t, "update", got.code, 0, got)
+				assertEq(t, "installed binary", e.read(bin), string(payload))
+				installed := e.runBinary(bin, "--version")
+				assertContains(t, "installed binary", installed.stdout, "streamed release")
+			} else {
+				assertCode(t, "update", got.code, 1, got)
+				assertContains(t, "stderr", got.stderr, "checksum mismatch")
+				assertEq(t, "original executable", e.read(bin), before)
+			}
+			assertNoUpdateTemps(t, bin)
+			e.note("verified replacement installed=%t; no update temporary files remain", valid)
+		})
+	}
+}
+
+func TestUpdateRefusesATruncatedDownload(t *testing.T) {
+	e := newEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1024")
+		_, _ = w.Write([]byte("incomplete"))
+	}))
+	t.Cleanup(srv.Close)
+	e.publishDownload(srv.URL, "sha256:"+sum([]byte("incomplete")))
+	bin := e.installCopy()
+	before := e.read(bin)
+	got := e.runBinary(bin, "update")
+	assertCode(t, "update", got.code, 1, got)
+	assertContains(t, "stderr", got.stderr, "unexpected EOF")
+	assertEq(t, "original executable", e.read(bin), before)
+	assertNoUpdateTemps(t, bin)
+	e.note("inaccurate Content-Length refused; original executable unchanged; no update temporary files remain")
+}
+
+func TestUpdateRefusesAnUnsupportedDigest(t *testing.T) {
+	e := newEnv(t)
+	e.publishStackmonRelease("v9.9.9", []byte("unverified"), "sha512:"+strings.Repeat("0", 128))
+	bin := e.installCopy()
+	before := e.read(bin)
+	got := e.runBinary(bin, "update")
+	assertCode(t, "update", got.code, 1, got)
+	assertContains(t, "stderr", got.stderr, "no sha256 digest")
+	assertEq(t, "original executable", e.read(bin), before)
+	assertEq(t, "asset requests", e.gh.count("/dl/"), 0)
+	assertNoUpdateTemps(t, bin)
+	e.note("unsupported digest refused without fetching asset; original executable unchanged; no update temporary files remain")
 }
 
 // A release with no build for the platform running stackmon is a dead end,

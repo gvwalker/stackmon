@@ -366,6 +366,11 @@ or publishing. See the [release runbook](docs/agents/releases.md) for version
 policy, recovery, and verification. `checksums.txt` remains available for older
 updaters; current `stackmon update` verifies GitHub's asset digest.
 
+`stackmon update` streams the executable to a temporary file while computing its
+SHA-256 digest. Assets larger than 128 MiB are refused, including downloads
+without a reliable `Content-Length`. Oversized, interrupted, or checksum-invalid
+downloads leave the installed executable unchanged and remove the temporary file.
+
 `stackmon update` preserves the installed executable's owner, group, and mode.
 It requires write access to the installation directory and permission to preserve
 that ownership; use the appropriate account for your installation. The verified
