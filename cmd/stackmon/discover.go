@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -12,7 +14,8 @@ import (
 )
 
 func newDiscoverCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+	cmd := &cobra.Command{
 		Use:   "discover",
 		Short: "List compose stacks from configured roots and running containers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -21,18 +24,45 @@ func newDiscoverCmd() *cobra.Command {
 				return err
 			}
 
-			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tSTATE\tPATH")
+			type stack struct {
+				Name     string `json:"name"`
+				Path     string `json:"path"`
+				Enrolled bool   `json:"enrolled"`
+				State    string `json:"state"`
+			}
+			stacks := make([]stack, 0, len(cands))
 			for _, c := range cands {
 				state := "available"
 				if c.Enrolled {
 					state = "enrolled"
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s/%s\n", c.Name, state, c.Dir, c.File)
+				stacks = append(stacks, stack{c.Name, fmt.Sprintf("%s/%s", c.Dir, c.File), c.Enrolled, state})
+			}
+			if asJSON {
+				for i := range stacks {
+					path, err := filepath.Abs(stacks[i].Path)
+					if err != nil {
+						return err
+					}
+					stacks[i].Path = path
+				}
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(struct {
+					Stacks []stack `json:"stacks"`
+				}{stacks})
+			}
+
+			tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "NAME\tSTATE\tPATH")
+			for _, s := range stacks {
+				fmt.Fprintf(tw, "%s\t%s\t%s\n", s.Name, s.State, s.Path)
 			}
 			return tw.Flush()
 		},
 	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit discovered stacks as JSON")
+	return cmd
 }
 
 // discoveredStacks supplies the same names and declarations to discovery and
