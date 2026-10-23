@@ -2022,6 +2022,150 @@ error: selfupdate: downloading stackmon-linux-amd64: context deadline exceeded
 ### TestUpdateBoundsAStalledDownload
 GitHub requests: releases=2 asset=1; installed binary unchanged, no update temporaries remain
 
+### TestDiscoverJSONMatchesTable
+$ stackmon enroll ROOT/srv/alpha
+--- stdout ---
+enrolled alpha (ROOT/srv/alpha/compose.yaml)
+--- exit 0 ---
+
+### TestDiscoverJSONMatchesTable
+$ stackmon discover
+--- stdout ---
+NAME    STATE      PATH
+alpha   available  ROOT/other/alpha/docker-compose.yml
+alpha   enrolled   ROOT/srv/alpha/compose.yaml
+broken  available  ROOT/srv/broken/compose.yaml
+zeta    available  ROOT/running/custom.yml
+--- exit 0 ---
+
+### TestDiscoverJSONMatchesTable
+$ stackmon discover --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "alpha",
+      "path": "ROOT/other/alpha/docker-compose.yml",
+      "enrolled": false,
+      "state": "available"
+    },
+    {
+      "name": "alpha",
+      "path": "ROOT/srv/alpha/compose.yaml",
+      "enrolled": true,
+      "state": "enrolled"
+    },
+    {
+      "name": "broken",
+      "path": "ROOT/srv/broken/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    },
+    {
+      "name": "zeta",
+      "path": "ROOT/running/custom.yml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestDiscoverJSONMatchesTable
+$ stackmon discover --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "alpha",
+      "path": "ROOT/other/alpha/docker-compose.yml",
+      "enrolled": false,
+      "state": "available"
+    },
+    {
+      "name": "alpha",
+      "path": "ROOT/srv/alpha/compose.yaml",
+      "enrolled": true,
+      "state": "enrolled"
+    },
+    {
+      "name": "broken",
+      "path": "ROOT/srv/broken/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    },
+    {
+      "name": "zeta",
+      "path": "ROOT/running/custom.yml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestDiscoverJSONEmptyAndUnavailableDocker
+$ stackmon discover --json
+--- stdout ---
+{
+  "stacks": []
+}
+--- exit 0 ---
+
+### TestDiscoverJSONEmptyAndUnavailableDocker
+$ stackmon discover --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "app",
+      "path": "ROOT/srv/app/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ]
+}
+--- exit 0 ---
+
+### TestDiscoverJSONPreservesErrors
+$ stackmon discover
+--- stderr ---
+error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 1 ---
+
+### TestDiscoverJSONPreservesErrors
+$ stackmon discover --json
+--- stderr ---
+error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 1 ---
+
+### TestDiscoverJSONPreservesErrors
+$ stackmon discover
+--- stderr ---
+error: config: parsing HOME/.config/stackmon/config.toml: toml: line 1 (last key "roots"): unexpected EOF; expected value
+--- exit 1 ---
+
+### TestDiscoverJSONPreservesErrors
+$ stackmon discover --json
+--- stderr ---
+error: config: parsing HOME/.config/stackmon/config.toml: toml: line 1 (last key "roots"): unexpected EOF; expected value
+--- exit 1 ---
+
+### TestDiscoverJSONResolvesRelativeRoots
+$ stackmon discover --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "relative",
+      "path": "ROOT/srv/relative/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ]
+}
+--- exit 0 ---
+
 ### TestDiscoverFindsStacksBelowConfiguredRoots
 $ stackmon discover
 --- stdout ---

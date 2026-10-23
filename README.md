@@ -92,9 +92,18 @@ allowlist and a restricted-key configuration example.
 
 ```sh
 stackmon discover
+stackmon discover --json
 ```
 
 Lists Compose stacks found below configured `roots` and in currently running Compose containers, marking each as `available` or `enrolled`. Filesystem discovery searches to a depth of three, skips dot-directories, and uses Compose filename precedence: `compose.yaml`, `compose.yml`, `docker-compose.yaml`, then `docker-compose.yml`. Docker-only candidates are shown even when no roots are configured. If Docker is unavailable, root discovery still works.
+
+`--json` emits the same stacks in the same order as the table, with every field present:
+
+```json
+{"stacks":[{"name":"media","path":"/srv/compose/media/compose.yaml","enrolled":false,"state":"available"}]}
+```
+
+`path` is the absolute Compose-file path, and `state` is `available` or `enrolled`, matching `enrolled`. An empty discovery emits `{"stacks":[]}`. Diagnostics go to stderr, leaving stdout for JSON; the flag does not change exit status. To enroll a result, use its unique discovered name (`stackmon enroll media`) or its directory (`stackmon enroll /srv/compose/media`); the Compose-file path itself is not an enrollment argument. Use `enroll --running <project>` to also bind a running Compose project.
 
 ### `enroll`, `unenroll`, `inventory list`, and `inventory set-project`
 
