@@ -323,7 +323,12 @@ A Docker socket is optional. If it is absent or unreadable, stackmon produces a 
 
 ## Development
 
-Requirements: Go 1.27. The test suite is the `e2e` package, and it is hermetic: it runs the built binary against a real in-memory registry, a real Docker Engine API on a unix socket, and a real GitHub API, all started by the test. No live registry, daemon, or network access is needed.
+Development requires Go 1.27 or later. If you use mise, run `mise install go` from
+the repository root to install the latest Go version selected by
+[`mise.toml`](mise.toml). Prefix the commands below with `mise exec --` to use
+that Go version. For example, run `mise exec -- go version` to check it.
+
+The test suite is the `e2e` package, and it is hermetic: it runs the built binary against a real in-memory registry, a real Docker Engine API on a unix socket, and a real GitHub API, all started by the test. No live registry, daemon, or network access is needed.
 
 ```sh
 go test -race ./... -count=1
