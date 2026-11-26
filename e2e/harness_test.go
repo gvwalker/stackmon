@@ -1493,8 +1493,10 @@ func sum(b []byte) string {
 // Fake Docker Engine API
 // ---------------------------------------------------------------------------
 
-// container is one running Compose container the fake daemon reports.
+// container is one Compose container the fake daemon reports.
 type container struct {
+	ID          string
+	Name        string
 	Project     string
 	WorkingDir  string
 	ConfigFiles string
@@ -1506,6 +1508,45 @@ type container struct {
 	RepoDigests []string
 	// OneOff marks a `docker compose run` container.
 	OneOff bool
+	// State is Docker's container lifecycle state ("running", "exited",
+	// "created", "restarting", "paused", "removing", "dead"). Empty defaults
+	// to "running" so existing fixtures stay concise.
+	State string
+	// Health is Docker's .State.Health.Status ("healthy", "unhealthy",
+	// "starting"). Empty means no healthcheck is configured.
+	Health string
+	// FailInspect makes GET /v1.44/containers/{id}/json return 500 for this
+	// container, modeling a partial daemon inspect failure.
+	FailInspect bool
+}
+
+func (c container) resolvedState() string {
+	if c.State == "" {
+		return "running"
+	}
+	return c.State
+}
+
+func (c container) resolvedID(idx int) string {
+	if c.ID != "" {
+		return c.ID
+	}
+	return shortHash(fmt.Sprintf("%d|%s|%s|%s|%s|%s", idx, c.Project, c.Service, c.Name, c.ImageID, c.resolvedState()))
+}
+
+func (c container) resolvedName(idx int) string {
+	name := c.Name
+	if name == "" {
+		if c.Project != "" && c.Service != "" {
+			name = fmt.Sprintf("%s-%s-%d", c.Project, c.Service, idx+1)
+		} else {
+			name = fmt.Sprintf("container-%d", idx+1)
+		}
+	}
+	if !strings.HasPrefix(name, "/") {
+		name = "/" + name
+	}
+	return name
 }
 
 type fakeDocker struct {
@@ -1547,15 +1588,23 @@ func newFakeDocker(t *testing.T, composeFile func(project string) (string, bool)
 	mux.HandleFunc("/v1.44/containers/json", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
+		d.paths = append(d.paths, r.Method+" "+r.URL.RequestURI())
 		if d.broken {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = w.Write([]byte(`{"message":"daemon is unhappy"}`))
 			return
 		}
+		includeAll := r.URL.Query().Get("all") == "true" || r.URL.Query().Get("all") == "1"
 		out := make([]map[string]any, 0, len(d.containers))
-		for _, c := range d.containers {
+		for idx, c := range d.containers {
+			state := c.resolvedState()
+			if !includeAll && state != "running" {
+				continue
+			}
 			out = append(out, map[string]any{
+				"Id":      c.resolvedID(idx),
+				"Names":   []string{c.resolvedName(idx)},
+				"State":   state,
 				"Image":   c.Image,
 				"ImageID": c.ImageID,
 				"Labels": map[string]string{
@@ -1568,6 +1617,38 @@ func newFakeDocker(t *testing.T, composeFile func(project string) (string, bool)
 			})
 		}
 		writeJSON(w, out)
+	})
+	mux.HandleFunc("/v1.44/containers/", func(w http.ResponseWriter, r *http.Request) {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
+		if d.broken {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"daemon is unhappy"}`))
+			return
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1.44/containers/"), "/json")
+		for idx, c := range d.containers {
+			if c.resolvedID(idx) == id {
+				if c.FailInspect {
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = w.Write([]byte(`{"message":"container inspect unavailable"}`))
+					return
+				}
+				stateObj := map[string]any{"Status": c.resolvedState()}
+				if c.Health != "" {
+					stateObj["Health"] = map[string]any{"Status": c.Health}
+				}
+				writeJSON(w, map[string]any{
+					"Id":    c.resolvedID(idx),
+					"Name":  c.resolvedName(idx),
+					"State": stateObj,
+				})
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		writeJSON(w, map[string]any{"message": "no such container"})
 	})
 	mux.HandleFunc("/v1.44/images/", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()

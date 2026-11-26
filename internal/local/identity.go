@@ -1,6 +1,7 @@
 package local
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -171,3 +172,40 @@ func configFiles(c Container) []string {
 }
 
 func absolute(p string) bool { return p != "" && filepath.IsAbs(p) }
+
+// Note formats an actionable explanation when an Identity could not be
+// established, naming the conflicting or unverifiable projects and the
+// set-project command that resolves it. Returns empty when the identity is
+// resolved or represents confirmed absence.
+func (id Identity) Note(stackName, composePath string) string {
+	if id.Resolved || id.Reason == "" {
+		return ""
+	}
+	bind := fmt.Sprintf("stackmon inventory set-project %s <project>", stackName)
+	switch id.Reason {
+	case ReasonConflicting:
+		return fmt.Sprintf(
+			"conflicting path labels in Compose projects (%s): containers disagree about whether they run %s; bind the project meant with %q",
+			strings.Join(id.Candidates, ", "), composePath, bind)
+	case ReasonAmbiguous:
+		return fmt.Sprintf(
+			"ambiguous: %s all run %s; bind the one meant with %q",
+			joinNames(id.Candidates), composePath, bind)
+	default:
+		return fmt.Sprintf(
+			"cannot tell which Compose project runs %s: the running projects (%s) record no working directory or config file to match it against; bind it with %q",
+			composePath, strings.Join(id.Candidates, ", "), bind)
+	}
+}
+
+// joinNames lists names the way a person would: "a", "a and b", "a, b and c".
+func joinNames(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
+}
