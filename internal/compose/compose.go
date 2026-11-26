@@ -255,6 +255,50 @@ func Load(ctx context.Context, s inventory.Stack) (Stack, error) {
 	return st, nil
 }
 
+// LoadServices parses an enrolled stack's Compose file to recover every active
+// declared Service name, including build-only services and services whose
+// images are inherited or cannot be rewritten by bump. Image references and
+// byte rewrite spans are deliberately not parsed, so runtime-only commands
+// such as health cover every declared Service without failing on image syntax.
+func LoadServices(ctx context.Context, s inventory.Stack) (Stack, error) {
+	name, dir, file := s.Name, s.Dir, s.File
+	path := filepath.Join(dir, file)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Stack{}, fmt.Errorf("compose: reading %s: %w", path, err)
+	}
+
+	env, err := environment(dir)
+	if err != nil {
+		return Stack{}, err
+	}
+
+	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
+		WorkingDir:  dir,
+		ConfigFiles: []types.ConfigFile{{Filename: path, Content: data}},
+		Environment: env,
+	}, func(o *loader.Options) {
+		o.SetProjectName(loader.NormalizeProjectName(name), true)
+		o.ResolvePaths = false
+		o.SkipValidation = true
+		o.SkipResolveEnvironment = true
+	})
+	if err != nil {
+		return Stack{}, fmt.Errorf("compose: loading %s: %w", path, err)
+	}
+
+	names := project.ServiceNames()
+	sort.Strings(names)
+	return Stack{
+		Name:         name,
+		Dir:          dir,
+		File:         file,
+		Project:      s.Project,
+		ServiceNames: names,
+	}, nil
+}
+
 // environment returns the process environment overlaid with the stack's .env
 // file, matching Compose's precedence where the process environment wins. A
 // .env that cannot be read or parsed is an error rather than a silent absence:

@@ -9,6 +9,10 @@ import (
 // errUpdatesFound signals exit code 2 without printing an error.
 var errUpdatesFound = errors.New("updates available")
 
+// errUnhealthy signals exit code 2 for `health --fail-on-unhealthy` without
+// printing an error line.
+var errUnhealthy = errors.New("unhealthy services")
+
 // errIncompleteChecks signals exit code 3: the run produced a report, but
 // a required check was skipped or failed.
 var errIncompleteChecks = errors.New("incomplete checks")
@@ -21,7 +25,7 @@ var version = "dev"
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
-		if errors.Is(err, errUpdatesFound) {
+		if errors.Is(err, errUpdatesFound) || errors.Is(err, errUnhealthy) {
 			os.Exit(exitUpdates)
 		}
 		if errors.Is(err, errIncompleteChecks) {

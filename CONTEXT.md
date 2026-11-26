@@ -107,3 +107,18 @@ _Avoid_: Reference (see Ref), lock.
 **Digest Pinning**:
 Writing the selected version tag together with its resolved digest when performing a Bump, retaining the readable version while identifying immutable image content. The selected version may be a newer Candidate or the current Version when no newer Candidate exists; existing digest-only pins retain their shape.
 _Avoid_: Digest target (the user does not supply a target digest).
+
+### Runtime health
+
+**Runtime Health**:
+The read-only observation of whether each declared Service in an enrolled Stack is running and passing its Docker healthcheck, independent of image versions or registry reachability. Covers every declared Service (including build-only and inherited declarations), enumerates stopped containers as well as running ones, excludes one-off `docker compose run` containers, and never mutates containers or Inventory.
+_Avoid_: Image Status (reserve `Status` in Image comparison for the Declared/Running/Registry verdict; runtime health is a separate axis with its own vocabulary).
+
+**Container Status**:
+A Service's liveness state in Docker: `running`, `exited`, `created`, `restarting`, `paused`, `removing`, `dead`, confirmed `absent`, or `unknown`. Distinct from image comparison's `not-running`, which means no running container was found for digest comparison; Runtime Health distinguishes stopped containers from confirmed absence and never uses `unknown` to stand in for a confirmed absence.
+
+**Healthcheck**:
+The Docker healthcheck verdict reported alongside Container Status as a separate field: `healthy`, `unhealthy`, `starting`, `none`, or `unknown`. `none` is emitted only when a container was inspected and has no healthcheck configured (or the container is confirmed absent); `unknown` marks an unavailable daemon, unresolved Project identity, or failed container inspection. `running` with `none` is a known-good state.
+
+**Worst Replica**:
+When a Service has multiple Replicas, every Replica is inspected and the Service reports the worst `(Container Status, Healthcheck)` verdict, breaking ties lexically by container name, alongside the total Replica count and how many Replicas disagree with the reported verdict.

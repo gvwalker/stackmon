@@ -32,14 +32,30 @@ const (
 	labelOneOff             = "com.docker.compose.oneoff"
 )
 
-// Container is one running container started by Compose.
+// Container is one Compose container reported by the Docker daemon.
 type Container struct {
+	// ID is Docker's container identifier.
+	ID string
+	// Name is the container's name with Docker's leading "/" stripped.
+	Name               string
 	Project            string
 	ProjectWorkingDir  string
 	ProjectConfigFiles string
 	Service            string
 	// Image is the reference the container was started from.
 	Image string
+	// State is Docker's container lifecycle status ("running", "exited",
+	// "created", "restarting", "paused", "removing", "dead"), empty when
+	// unverified.
+	State string
+	// Health is Docker's healthcheck status ("healthy", "unhealthy",
+	// "starting", "none") from container inspection. "none" means the
+	// container was inspected and has no healthcheck configured; empty means
+	// health was not inspected or inspection failed.
+	Health string
+	// InspectError records a failed GET /containers/{id}/json call so callers
+	// never mistake an uninspected container for one with no healthcheck.
+	InspectError string
 	// RepoDigests is every manifest digest Docker has recorded for the
 	// image actually in use, resolved from the daemon's ImageID via
 	// GET /images/{id}/json's RepoDigests. This is a different namespace
@@ -106,9 +122,25 @@ func (c *Client) Available() bool {
 
 // apiContainer mirrors the fields stackmon reads from GET /containers/json.
 type apiContainer struct {
+	ID      string            `json:"Id"`
+	Names   []string          `json:"Names"`
+	State   string            `json:"State"`
 	Image   string            `json:"Image"`
 	ImageID string            `json:"ImageID"`
 	Labels  map[string]string `json:"Labels"`
+}
+
+// apiContainerInspect mirrors the runtime state fields stackmon reads from
+// GET /containers/{id}/json.
+type apiContainerInspect struct {
+	ID    string `json:"Id"`
+	Name  string `json:"Name"`
+	State struct {
+		Status string `json:"Status"`
+		Health *struct {
+			Status string `json:"Status"`
+		} `json:"Health"`
+	} `json:"State"`
 }
 
 // apiImageInspect mirrors the fields stackmon reads from
@@ -122,26 +154,9 @@ type apiImageInspect struct {
 // One-off `docker compose run` containers are included and flagged, because
 // whether one counts is the caller's decision, not the reader's.
 func (c *Client) Containers(ctx context.Context) ([]Container, error) {
-	// The host is ignored by the unix dialer but required by net/http.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/v1.44/containers/json", nil)
+	raw, err := c.listContainers(ctx, false)
 	if err != nil {
-		return nil, fmt.Errorf("local: building request: %w", err)
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("local: querying docker at %s: %w", c.socket, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("local: docker returned %s: %s", resp.Status, body)
-	}
-
-	var raw []apiContainer
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("local: decoding docker response: %w", err)
+		return nil, err
 	}
 
 	out := make([]Container, 0, len(raw))
@@ -170,11 +185,14 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 		}
 
 		cont := Container{
+			ID:                 r.ID,
+			Name:               containerName(r.Names, r.ID),
 			Project:            project,
 			ProjectWorkingDir:  r.Labels[labelProjectWorkingDir],
 			ProjectConfigFiles: r.Labels[labelProjectConfigFiles],
 			Service:            service,
 			Image:              r.Image,
+			State:              r.State,
 			RepoDigests:        digs,
 			OneOff:             strings.EqualFold(r.Labels[labelOneOff], "true"),
 		}
@@ -184,6 +202,122 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 		out = append(out, cont)
 	}
 	return out, nil
+}
+
+// AllContainers lists every Compose container (running and stopped) and
+// inspects each non-one-off container's runtime status and healthcheck state.
+// Image RepoDigests are not fetched, because runtime health is independent of
+// image provenance.
+func (c *Client) AllContainers(ctx context.Context) ([]Container, error) {
+	raw, err := c.listContainers(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]Container, 0, len(raw))
+	for _, r := range raw {
+		project, service := r.Labels[labelProject], r.Labels[labelService]
+		if project == "" || service == "" {
+			continue
+		}
+		oneOff := strings.EqualFold(r.Labels[labelOneOff], "true")
+		cont := Container{
+			ID:                 r.ID,
+			Name:               containerName(r.Names, r.ID),
+			Project:            project,
+			ProjectWorkingDir:  r.Labels[labelProjectWorkingDir],
+			ProjectConfigFiles: r.Labels[labelProjectConfigFiles],
+			Service:            service,
+			Image:              r.Image,
+			State:              r.State,
+			OneOff:             oneOff,
+		}
+		if !oneOff {
+			inspected, inspectErr := c.inspectContainer(ctx, r.ID)
+			if inspectErr != nil {
+				cont.State = ""
+				cont.Health = ""
+				cont.InspectError = inspectErr.Error()
+			} else {
+				if name := strings.TrimPrefix(inspected.Name, "/"); name != "" {
+					cont.Name = name
+				}
+				cont.State = inspected.State.Status
+				if inspected.State.Health == nil || inspected.State.Health.Status == "" {
+					cont.Health = "none"
+				} else {
+					cont.Health = inspected.State.Health.Status
+				}
+			}
+		}
+		out = append(out, cont)
+	}
+	return out, nil
+}
+
+func (c *Client) listContainers(ctx context.Context, all bool) ([]apiContainer, error) {
+	endpoint := "http://docker/v1.44/containers/json"
+	if all {
+		endpoint += "?all=true"
+	}
+	// The host is ignored by the unix dialer but required by net/http.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("local: building request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("local: querying docker at %s: %w", c.socket, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("local: docker returned %s: %s", resp.Status, body)
+	}
+
+	var raw []apiContainer
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("local: decoding docker response: %w", err)
+	}
+	return raw, nil
+}
+
+func (c *Client) inspectContainer(ctx context.Context, id string) (apiContainerInspect, error) {
+	if id == "" {
+		return apiContainerInspect{}, fmt.Errorf("local: inspecting container: missing container id")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://docker/v1.44/containers/"+id+"/json", nil)
+	if err != nil {
+		return apiContainerInspect{}, fmt.Errorf("local: building container inspect request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return apiContainerInspect{}, fmt.Errorf("local: inspecting container %s: %w", id, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return apiContainerInspect{}, fmt.Errorf("local: inspecting container %s: docker returned %s: %s", id, resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var info apiContainerInspect
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return apiContainerInspect{}, fmt.Errorf("local: decoding container inspect for %s: %w", id, err)
+	}
+	return info, nil
+}
+
+func containerName(names []string, fallbackID string) string {
+	for _, n := range names {
+		if trimmed := strings.TrimPrefix(n, "/"); trimmed != "" {
+			return trimmed
+		}
+	}
+	return fallbackID
 }
 
 // repoDigests resolves imageID's manifest digests via GET /images/{id}/json.
@@ -251,11 +385,18 @@ func Index(cs []Container) map[string][]Container {
 	return out
 }
 
-// less orders replicas by image reference, then by the digest set, so
-// deterministic output does not depend on the daemon's ordering.
+// less orders replicas by image reference, then by the digest set, then by
+// container name and ID, so deterministic output does not depend on the
+// daemon's ordering.
 func less(a, b Container) bool {
 	if a.Image != b.Image {
 		return a.Image < b.Image
 	}
-	return strings.Join(a.RepoDigests, ",") < strings.Join(b.RepoDigests, ",")
+	if da, db := strings.Join(a.RepoDigests, ","), strings.Join(b.RepoDigests, ","); da != db {
+		return da < db
+	}
+	if a.Name != b.Name {
+		return a.Name < b.Name
+	}
+	return a.ID < b.ID
 }

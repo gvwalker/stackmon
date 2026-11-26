@@ -9,6 +9,7 @@ It is read-only by default. Only `stackmon bump` changes a Compose file, and sta
 - Discover Compose stacks under configured roots and from currently running Compose containers, then explicitly enroll only the stacks to monitor.
 - Match an enrolled stack to its running Docker Compose project by the paths Compose recorded, independently of the stack's name, and say so rather than guess when a match is ambiguous.
 - Check declared image references against their registries and, when accessible, against the Docker daemon's running containers.
+- Report runtime container liveness and Docker healthcheck state per enrolled service (`stackmon health`), offline and independently of registries.
 - Compare every running replica of a service, so a stale container cannot hide behind a fresh one.
 - Identify version updates, digest drift, stale deployments, undeployed changes, stopped services, and per-image probe failures.
 - Infer safe version candidates from semantic-version tags while preserving tag prefixes and variants; use explicit glob constraints for opaque tags such as `pg15`.
@@ -210,6 +211,51 @@ The report carries diagnostics a consumer does not have to scrape stderr for:
 
 `docker_available` + `docker_error` together distinguish the three Docker states: available/empty means the daemon answered; unavailable/empty means the optional socket was absent and the run fell back to file/Registry-only behavior; unavailable/set means the socket existed but the probe failed, so rows carry `running_error` and no row claims a verified `current` or `not-running`. Each running replica records `digest_error` when its digest lookup failed, which is distinct from a legitimately digest-less image (locally built, no `RepoDigests`), represented by an empty digest list and no error. Counts: `stacks_checked` parsed and produced rows; `stacks_skipped` were missing or failed to parse, so an empty inventory (all zeros) is distinguishable from a run where every enrolled stack failed.
 
+### `health`
+
+```sh
+stackmon health
+stackmon health traefik postgres
+stackmon health --compact
+stackmon health --json
+stackmon health --fail-on-unhealthy
+```
+
+Reports container runtime liveness and Docker healthcheck state for every declared service in the enrolled stacks (or only the named stacks). `health` is read-only and local-Docker-only: it never contacts container registries, works with the network down, enumerates both running and stopped containers, includes build-only and inherited Compose services, and excludes one-off `docker compose run` containers.
+
+Each service reports **two independent fields** rather than collapsing them into image `check` statuses:
+
+- `status`: `running`, `exited`, `created`, `restarting`, `paused`, `removing`, `dead`, `absent` (confirmed no container exists), or `unknown` (daemon unavailable, failed container inspect, or unresolved Compose project identity).
+- `health`: `healthy`, `unhealthy`, `starting`, `none` (explicitly verified absent healthcheck, or confirmed absent container), or `unknown` (probe unavailable or uninspected).
+
+`running` + `none` is a known-good state for services without a Compose `healthcheck:`. When a service has multiple replicas, every replica is inspected and the row reports the worst replica (breaking ties lexically by container name) along with the replica count and disagreement detail. Project resolution follows the same explicit-binding and honest-unknown rules as `check`. Missing or unparseable enrolled stacks are warned on stderr and preserved as structured `stack_failures` rather than silently disappearing or inventing per-service rows.
+
+`--compact` (`-c`) emits deterministic JSON with every field always present:
+
+```json
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+```
+
+`--json` emits the full report including per-replica entries and project-binding metadata. `--fail-on-unhealthy` exits `2` whenever Docker is unavailable, any enrolled stack is missing or fails to parse, or any service is not confirmed `running` with health `healthy` or `none` (including `unhealthy`, `starting`, `exited`, `absent`, and `unknown`). Without the flag, the command exits `0` unless stackmon itself fails (exit `1`).
+
 ### `show`
 
 ```sh
@@ -318,7 +364,7 @@ A Docker socket is optional. If it is absent or unreadable, stackmon produces a 
 - Every network operation carries a request budget: 30 seconds for a registry probe or a GitHub API call, 10 minutes for a release-asset download. The budget covers the whole exchange — connecting, waiting for headers, and reading the response body — so a server that answers and then stalls produces a bounded failure with the reason in the output, never a run that hangs. An earlier caller deadline always wins.
 - Registry and GitHub reads retry HTTP 429, 500, 502, 503, 504, and transient connection failures before response headers, with at most three attempts. Backoff waits are 200 ms then 400 ms; `Retry-After` seconds or HTTP dates can extend a wait up to five seconds. A longer requested wait returns the failure without retrying early. All attempts and waits share the operation budget above. Authentication/not-found errors, invalid content, and checksum failures are returned without retry; an exhausted registry probe still reports `unknown`.
 - Floating or opaque tags are tracked for digest changes unless a safe candidate constraint exists. Stackmon does not guess a major-version migration.
-- The default exit code is `0` even when updates or drift exist. Exit `1` means stackmon itself could not complete, such as an invalid configuration or unreadable inventory. Exit `2` is reserved for `--fail-on-update`; exit `3` is returned by `--fail-on-incomplete`, and when both would apply `2` wins.
+- The default exit code is `0` even when updates, drift, or unhealthy services exist. Exit `1` means stackmon itself could not complete, such as an invalid configuration or unreadable inventory. Exit `2` is reserved for `check --fail-on-update` and `health --fail-on-unhealthy`; exit `3` is returned by `check --fail-on-incomplete`, and when both `check` flags would apply `2` wins.
 - Stackmon does not cache registry responses, notify external systems, schedule runs, manage Kubernetes or Swarm workloads, or deploy changes.
 
 ## Development

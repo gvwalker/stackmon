@@ -2701,6 +2701,884 @@ enrolled demo (ROOT/srv/demo/compose.yaml)
 ### TestEnrollDiscoveredNameRelativeRootPersistsAbsoluteDirectory
 inventory: name=demo file=ROOT/srv/demo/compose.yaml project=""
 
+### TestHealthReportsHealthyNoHealthcheckBuildOnlyAndInheritedOffline
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsHealthyNoHealthcheckBuildOnlyAndInheritedOffline
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "builder",
+      "container": "demo-builder-1",
+      "status": "running",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "web",
+      "container": "demo-web-1",
+      "status": "running",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "worker",
+      "container": "demo-worker-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+### TestHealthReportsHealthyNoHealthcheckBuildOnlyAndInheritedOffline
+registry requests during health: 0; docker image lookups: 0
+
+### TestHealthReportsHealthyNoHealthcheckBuildOnlyAndInheritedOffline
+$ stackmon health
+--- stdout ---
+STACK  SERVICE  CONTAINER       STATUS   HEALTH   DETAIL
+demo   api      demo-api-1      running  healthy  
+demo   builder  demo-builder-1  running  none     
+demo   web      demo-web-1      running  none     
+demo   worker   demo-worker-1   running  healthy  
+--- exit 0 ---
+
+### TestHealthReportsHealthyNoHealthcheckBuildOnlyAndInheritedOffline
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER       STATUS   HEALTH   DETAIL
+demo   api      demo-api-1      running  healthy  
+demo   builder  demo-builder-1  running  none     
+demo   web      demo-web-1      running  none     
+demo   worker   demo-worker-1   running  healthy  
+--- exit 0 ---
+
+### TestHealthReportsHealthyNoHealthcheckBuildOnlyAndInheritedOffline
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "builder",
+      "container": "demo-builder-1",
+      "status": "running",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "web",
+      "container": "demo-web-1",
+      "status": "running",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "worker",
+      "container": "demo-worker-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsHealthyNoHealthcheckBuildOnlyAndInheritedOffline
+$ stackmon health nonexistent
+--- stderr ---
+error: "nonexistent" is not enrolled; run 'stackmon discover' to see what is available
+--- exit 1 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "created",
+      "container": "demo-created-1",
+      "status": "created",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "exited",
+      "container": "demo-exited-1",
+      "status": "exited",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "job",
+      "container": "",
+      "status": "absent",
+      "health": "none",
+      "replicas": 0,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "paused",
+      "container": "demo-paused-1",
+      "status": "paused",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "restarting",
+      "container": "demo-restarting-1",
+      "status": "restarting",
+      "health": "none",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "starting",
+      "container": "demo-starting-1",
+      "status": "running",
+      "health": "starting",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "unhealthy",
+      "container": "demo-unhealthy-1",
+      "status": "running",
+      "health": "unhealthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/unhealthy
+$ stackmon enroll ROOT/srv/s
+--- stdout ---
+enrolled s (ROOT/srv/s/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/unhealthy
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS   HEALTH     DETAIL
+s      app      s-app-1    running  unhealthy  
+--- exit 2 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/starting
+$ stackmon enroll ROOT/srv/s
+--- stdout ---
+enrolled s (ROOT/srv/s/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/starting
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS   HEALTH    DETAIL
+s      app      s-app-1    running  starting  
+--- exit 2 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/exited
+$ stackmon enroll ROOT/srv/s
+--- stdout ---
+enrolled s (ROOT/srv/s/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/exited
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS  HEALTH  DETAIL
+s      app      s-app-1    exited  none    
+--- exit 2 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/created
+$ stackmon enroll ROOT/srv/s
+--- stdout ---
+enrolled s (ROOT/srv/s/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/created
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS   HEALTH  DETAIL
+s      app      s-app-1    created  none    
+--- exit 2 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/restarting
+$ stackmon enroll ROOT/srv/s
+--- stdout ---
+enrolled s (ROOT/srv/s/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/restarting
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS      HEALTH  DETAIL
+s      app      s-app-1    restarting  none    
+--- exit 2 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/paused
+$ stackmon enroll ROOT/srv/s
+--- stdout ---
+enrolled s (ROOT/srv/s/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnhealthyStartingStoppedAndExcludesOneOffs/paused
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS  HEALTH  DETAIL
+s      app      s-app-1    paused  none    
+--- exit 2 ---
+
+### TestHealthReportsConfirmedAbsenceDistinctFromUnknown
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsConfirmedAbsenceDistinctFromUnknown
+$ stackmon enroll ROOT/srv/idle
+--- stdout ---
+enrolled idle (ROOT/srv/idle/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsConfirmedAbsenceDistinctFromUnknown
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "worker",
+      "container": "",
+      "status": "absent",
+      "health": "none",
+      "replicas": 0,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "idle",
+      "service": "web",
+      "container": "",
+      "status": "absent",
+      "health": "none",
+      "replicas": 0,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsConfirmedAbsenceDistinctFromUnknown
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER   STATUS   HEALTH   DETAIL
+demo   api      demo-api-1  running  healthy  
+demo   worker   -           absent   none     no container found
+idle   web      -           absent   none     no container found
+--- exit 2 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/absent_socket
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/absent_socket
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": false,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "",
+      "status": "unknown",
+      "health": "unknown",
+      "replicas": 0,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "docker socket unavailable",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/absent_socket
+$ stackmon health
+--- stdout ---
+note: docker socket unavailable; runtime health was not checked
+STACK  SERVICE  CONTAINER  STATUS   HEALTH   DETAIL
+demo   api      -          unknown  unknown  docker socket unavailable
+--- exit 0 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/absent_socket
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+note: docker socket unavailable; runtime health was not checked
+STACK  SERVICE  CONTAINER  STATUS   HEALTH   DETAIL
+demo   api      -          unknown  unknown  docker socket unavailable
+--- exit 2 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/failing_daemon
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/failing_daemon
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": false,
+  "docker_error": "local: docker returned 500 Internal Server Error: {\"message\":\"daemon is unhappy\"}",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "",
+      "status": "unknown",
+      "health": "unknown",
+      "replicas": 0,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "local: docker returned 500 Internal Server Error: {\"message\":\"daemon is unhappy\"}",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- stderr ---
+warning: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 0 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/failing_daemon
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+note: docker socket present but container listing failed: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}; runtime health was not verified
+STACK  SERVICE  CONTAINER  STATUS   HEALTH   DETAIL
+demo   api      -          unknown  unknown  local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- stderr ---
+warning: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 2 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/failed_container_inspect
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/failed_container_inspect
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-1",
+      "status": "unknown",
+      "health": "unknown",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "local: inspecting container 70d788ea4c49: docker returned 500 Internal Server Error: {\"message\":\"container inspect unavailable\"}",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "db",
+      "container": "demo-db-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsDockerAbsentFailingDaemonAndFailedInspectAsUnknown/failed_container_inspect
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER   STATUS   HEALTH   DETAIL
+demo   api      demo-api-1  unknown  unknown  local: inspecting container 70d788ea4c49: docker returned 500 Internal Server Error: {"message":"container inspect unavailable"}
+demo   db       demo-db-1   running  healthy  
+--- exit 2 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "",
+      "status": "unknown",
+      "health": "unknown",
+      "replicas": 0,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": "ambiguous: blue and green all run ROOT/srv/demo/compose.yaml; bind the one meant with \"stackmon inventory set-project demo <project>\""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS   HEALTH   DETAIL
+demo   api      -          unknown  unknown  ambiguous: blue and green all run ROOT/srv/demo/compose.yaml; bind the one meant with "stackmon inventory set-project demo <project>"
+--- exit 2 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon inventory set-project demo blue
+--- stdout ---
+bound demo to Compose project blue
+--- exit 0 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "blue-api-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER   STATUS   HEALTH   DETAIL
+demo   api      blue-api-1  running  healthy  
+--- exit 0 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "",
+      "status": "unknown",
+      "health": "unknown",
+      "replicas": 0,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": "cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (mystery) record no working directory or config file to match it against; bind it with \"stackmon inventory set-project demo <project>\""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsAmbiguousAndUnverifiableIdentityAndHonoursBinding
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS   HEALTH   DETAIL
+demo   api      -          unknown  unknown  cannot tell which Compose project runs ROOT/srv/demo/compose.yaml: the running projects (mystery) record no working directory or config file to match it against; bind it with "stackmon inventory set-project demo <project>"
+--- exit 2 ---
+
+### TestHealthInspectsAllReplicasAndReportsWorstDeterministically
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthInspectsAllReplicasAndReportsWorstDeterministically
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-2",
+      "status": "running",
+      "health": "unhealthy",
+      "replicas": 3,
+      "disagreeing_replicas": 2,
+      "replica_detail": "of 3 replicas: 1 running/unhealthy, 2 running/healthy",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "tied",
+      "container": "demo-tied-a",
+      "status": "running",
+      "health": "unhealthy",
+      "replicas": 2,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthInspectsAllReplicasAndReportsWorstDeterministically
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-2",
+      "status": "running",
+      "health": "unhealthy",
+      "replicas": 3,
+      "disagreeing_replicas": 2,
+      "replica_detail": "of 3 replicas: 1 running/unhealthy, 2 running/healthy",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "tied",
+      "container": "demo-tied-a",
+      "status": "running",
+      "health": "unhealthy",
+      "replicas": 2,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthInspectsAllReplicasAndReportsWorstDeterministically
+$ stackmon health
+--- stdout ---
+STACK  SERVICE  CONTAINER    STATUS   HEALTH     DETAIL
+demo   api      demo-api-2   running  unhealthy  of 3 replicas: 1 running/unhealthy, 2 running/healthy
+demo   tied     demo-tied-a  running  unhealthy  2 replicas
+--- exit 0 ---
+
+### TestHealthInspectsAllReplicasAndReportsWorstDeterministically
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER    STATUS   HEALTH     DETAIL
+demo   api      demo-api-2   running  unhealthy  of 3 replicas: 1 running/unhealthy, 2 running/healthy
+demo   tied     demo-tied-a  running  unhealthy  2 replicas
+--- exit 2 ---
+
+### TestHealthInspectsAllReplicasAndReportsWorstDeterministically
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-2",
+      "status": "exited",
+      "health": "none",
+      "replicas": 2,
+      "disagreeing_replicas": 1,
+      "replica_detail": "of 2 replicas: 1 exited/none, 1 running/unhealthy",
+      "error": "",
+      "identity_note": ""
+    },
+    {
+      "stack": "demo",
+      "service": "tied",
+      "container": "demo-tied-a",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": []
+}
+--- exit 0 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon enroll ROOT/srv/demo
+--- stdout ---
+enrolled demo (ROOT/srv/demo/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon enroll ROOT/srv/broken
+--- stdout ---
+enrolled broken (ROOT/srv/broken/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon enroll ROOT/srv/gone
+--- stdout ---
+enrolled gone (ROOT/srv/gone/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [
+    {
+      "stack": "demo",
+      "service": "api",
+      "container": "demo-api-1",
+      "status": "running",
+      "health": "healthy",
+      "replicas": 1,
+      "disagreeing_replicas": 0,
+      "replica_detail": "",
+      "error": "",
+      "identity_note": ""
+    }
+  ],
+  "stack_failures": [
+    {
+      "stack": "broken",
+      "reason": "compose: loading ROOT/srv/broken/compose.yaml: failed to parse ROOT/srv/broken/compose.yaml: yaml: while parsing a flow node at line 1: did not find expected node content"
+    },
+    {
+      "stack": "gone",
+      "reason": "no longer exists at ROOT/srv/gone/compose.yaml"
+    }
+  ]
+}
+--- stderr ---
+warning: enrolled stack "gone" no longer exists at ROOT/srv/gone/compose.yaml; re-enroll it or run 'stackmon unenroll gone'
+warning: broken: compose: loading ROOT/srv/broken/compose.yaml: failed to parse ROOT/srv/broken/compose.yaml: yaml: while parsing a flow node at line 1: did not find expected node content
+--- exit 0 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER   STATUS   HEALTH   DETAIL
+demo   api      demo-api-1  running  healthy  
+--- stderr ---
+warning: enrolled stack "gone" no longer exists at ROOT/srv/gone/compose.yaml; re-enroll it or run 'stackmon unenroll gone'
+warning: broken: compose: loading ROOT/srv/broken/compose.yaml: failed to parse ROOT/srv/broken/compose.yaml: yaml: while parsing a flow node at line 1: did not find expected node content
+--- exit 2 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon enroll ROOT/srv/onlybroken
+--- stdout ---
+enrolled onlybroken (ROOT/srv/onlybroken/compose.yaml)
+--- exit 0 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon health --compact
+--- stdout ---
+{
+  "docker_available": true,
+  "docker_error": "",
+  "services": [],
+  "stack_failures": [
+    {
+      "stack": "onlybroken",
+      "reason": "compose: loading ROOT/srv/onlybroken/compose.yaml: failed to parse ROOT/srv/onlybroken/compose.yaml: yaml: while parsing a flow node at line 1: did not find expected node content"
+    }
+  ]
+}
+--- stderr ---
+warning: onlybroken: compose: loading ROOT/srv/onlybroken/compose.yaml: failed to parse ROOT/srv/onlybroken/compose.yaml: yaml: while parsing a flow node at line 1: did not find expected node content
+--- exit 0 ---
+
+### TestHealthReportsUnparseableAndMissingStacksAsStructuredFailures
+$ stackmon health --fail-on-unhealthy
+--- stdout ---
+STACK  SERVICE  CONTAINER  STATUS  HEALTH  DETAIL
+--- stderr ---
+warning: onlybroken: compose: loading ROOT/srv/onlybroken/compose.yaml: failed to parse ROOT/srv/onlybroken/compose.yaml: yaml: while parsing a flow node at line 1: did not find expected node content
+--- exit 2 ---
+
 ### TestCheckReportsInheritedImagesAndTheirSiblings
 $ stackmon enroll ROOT/srv/demo
 --- stdout ---

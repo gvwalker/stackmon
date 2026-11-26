@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -323,33 +322,7 @@ func resolveIdentity(st compose.Stack, containers []local.Container, dockerUp bo
 		return identity{}
 	}
 
-	bind := fmt.Sprintf("stackmon inventory set-project %s <project>", st.Name)
-	switch id.Reason {
-	case local.ReasonConflicting:
-		return identity{note: fmt.Sprintf(
-			"conflicting path labels in Compose projects (%s): containers disagree about whether they run %s; bind the project meant with %q",
-			strings.Join(id.Candidates, ", "), st.Path(), bind)}
-	case local.ReasonAmbiguous:
-		return identity{note: fmt.Sprintf(
-			"ambiguous: %s all run %s; bind the one meant with %q",
-			joinNames(id.Candidates), st.Path(), bind)}
-	default:
-		return identity{note: fmt.Sprintf(
-			"cannot tell which Compose project runs %s: the running projects (%s) record no working directory or config file to match it against; bind it with %q",
-			st.Path(), strings.Join(id.Candidates, ", "), bind)}
-	}
-}
-
-// joinNames lists names the way a person would: "a", "a and b", "a, b and c".
-func joinNames(names []string) string {
-	switch len(names) {
-	case 0:
-		return ""
-	case 1:
-		return names[0]
-	default:
-		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
-	}
+	return identity{note: id.Note(st.Name, st.Path())}
 }
 
 // compareReplicas judges every Replica of a service against the digest it is
