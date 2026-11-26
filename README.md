@@ -106,6 +106,25 @@ Lists Compose stacks found below configured `roots` and in currently running Com
 
 `path` is the absolute Compose-file path, and `state` is `available` or `enrolled`, matching `enrolled`. An empty discovery emits `{"stacks":[]}`. Diagnostics go to stderr, leaving stdout for JSON; the flag does not change exit status. To enroll a result, use its unique discovered name (`stackmon enroll media`) or its directory (`stackmon enroll /srv/compose/media`); the Compose-file path itself is not an enrollment argument. Use `enroll --running <project>` to also bind a running Compose project.
 
+Use `stackmon discover --unmanaged` (optionally with `--json`) to also list running Compose Projects that have no enrolled Stack. This adds a distinct unmanaged section; the ordinary Stack list keeps its meaning. It excludes one-off jobs and stopped containers, respects explicit Project Bindings and path identity, and never enrolls anything or probes images. Intentionally unmonitored workloads are a valid state.
+
+With `--unmanaged --json`, the envelope adds these fields:
+
+```json
+{
+  "stacks": [],
+  "unmanaged": [{"project":"sandbox","containers":["sandbox-web-1"],"enrolled_stack":"","compose_paths":[]}],
+  "unmanaged_unknown": [],
+  "unmanaged_complete": true
+}
+```
+
+Projects, containers, and paths are sorted. `compose_paths` lists locally existing Compose files found from Docker labels or the recorded working directory; it is `[]` (shown as `none found` in the table) when none can be found, including Docker-only Projects whose files have disappeared. Missing files never hide a Project. The requested `unmanaged` and `unmanaged_unknown` lists are always present, including when empty.
+
+If labels cannot establish enrollment coverage, the Project appears in `unmanaged_unknown` with a `reason` identifying the affected Stack and uncertainty (`ambiguous`, `conflicting`, or `unverifiable`), rather than receiving an unmanaged verdict. An explicit binding via `stackmon inventory set-project STACK PROJECT` can resolve identity uncertainty when you know the association.
+
+If Docker is unavailable or enumeration fails, this flag retains filesystem discovery results, sets `unmanaged_complete` to `false`, includes `unmanaged_error`, and exits 1 with a diagnostic on stderr. Empty unmanaged lists in an incomplete report do **not** establish that every Project is enrolled. Without `--unmanaged`, existing discovery output and error behavior are unchanged.
+
 ### `enroll`, `unenroll`, `inventory list`, and `inventory set-project`
 
 ```sh
