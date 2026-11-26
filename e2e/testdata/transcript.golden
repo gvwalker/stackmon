@@ -6241,6 +6241,320 @@ demo / api
 
 --- exit 0 ---
 
+### TestDiscoverUnmanagedProjects
+$ stackmon enroll ROOT/srv/watched
+--- stdout ---
+enrolled watched (ROOT/srv/watched/compose.yaml)
+--- exit 0 ---
+
+### TestDiscoverUnmanagedProjects
+$ stackmon enroll ROOT/srv/bound --project custom
+--- stdout ---
+enrolled bound (ROOT/srv/bound/compose.yaml)
+bound to Compose project custom
+--- exit 0 ---
+
+### TestDiscoverUnmanagedProjects
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "actual",
+      "path": "ROOT/srv/watched/compose.yaml",
+      "enrolled": true,
+      "state": "enrolled"
+    },
+    {
+      "name": "extra",
+      "path": "ROOT/srv/extra/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ],
+  "unmanaged": [
+    {
+      "project": "extra",
+      "containers": [
+        "extra-a",
+        "extra-b"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": [
+        "ROOT/srv/extra/compose.yaml"
+      ]
+    },
+    {
+      "project": "gone",
+      "containers": [
+        "gone"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": []
+    }
+  ],
+  "unmanaged_unknown": [],
+  "unmanaged_complete": true
+}
+--- exit 0 ---
+### TestDiscoverUnmanagedProjects
+Inventory unchanged; Docker image requests: 0
+
+### TestDiscoverUnmanagedProjects
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "actual",
+      "path": "ROOT/srv/watched/compose.yaml",
+      "enrolled": true,
+      "state": "enrolled"
+    },
+    {
+      "name": "extra",
+      "path": "ROOT/srv/extra/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ],
+  "unmanaged": [
+    {
+      "project": "extra",
+      "containers": [
+        "extra-a",
+        "extra-b"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": [
+        "ROOT/srv/extra/compose.yaml"
+      ]
+    },
+    {
+      "project": "gone",
+      "containers": [
+        "gone"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": []
+    }
+  ],
+  "unmanaged_unknown": [],
+  "unmanaged_complete": true
+}
+--- exit 0 ---
+
+### TestDiscoverUnmanagedProjects
+$ stackmon discover --unmanaged
+--- stdout ---
+NAME    STATE      PATH
+actual  enrolled   ROOT/srv/watched/compose.yaml
+extra   available  ROOT/srv/extra/compose.yaml
+
+Unmanaged Compose Projects
+PROJECT  CONTAINERS        COMPOSE PATHS                                          COVERAGE
+extra    extra-a, extra-b  ROOT/srv/extra/compose.yaml  no enrolled Stack
+gone     gone              none found                                             no enrolled Stack
+
+Projects with uncertain enrollment coverage
+[]
+--- exit 0 ---
+
+### TestDiscoverUnmanagedUncertainCoverage
+$ stackmon enroll ROOT/srv/watched
+--- stdout ---
+enrolled watched (ROOT/srv/watched/compose.yaml)
+--- exit 0 ---
+
+### TestDiscoverUnmanagedUncertainCoverage
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "a",
+      "path": "ROOT/srv/watched/compose.yaml",
+      "enrolled": true,
+      "state": "enrolled"
+    }
+  ],
+  "unmanaged": [
+    {
+      "project": "other",
+      "containers": [
+        "other"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": []
+    }
+  ],
+  "unmanaged_unknown": [
+    {
+      "project": "a",
+      "containers": [
+        "a"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": [
+        "ROOT/srv/watched/compose.yaml"
+      ],
+      "reason": "watched: ambiguous"
+    },
+    {
+      "project": "b",
+      "containers": [
+        "b"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": [
+        "ROOT/srv/watched/compose.yaml"
+      ],
+      "reason": "watched: ambiguous"
+    },
+    {
+      "project": "unlabelled",
+      "containers": [
+        "unlabelled"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": [],
+      "reason": "watched: unverifiable"
+    }
+  ],
+  "unmanaged_complete": true
+}
+--- exit 0 ---
+
+### TestDiscoverUnmanagedUncertainCoverage
+$ stackmon discover --unmanaged
+--- stdout ---
+NAME  STATE     PATH
+a     enrolled  ROOT/srv/watched/compose.yaml
+
+Unmanaged Compose Projects
+PROJECT  CONTAINERS  COMPOSE PATHS  COVERAGE
+other    other       none found     no enrolled Stack
+
+Projects with uncertain enrollment coverage
+PROJECT     CONTAINERS  COMPOSE PATHS                                            COVERAGE
+a           a           ROOT/srv/watched/compose.yaml  watched: ambiguous
+b           b           ROOT/srv/watched/compose.yaml  watched: ambiguous
+unlabelled  unlabelled  none found                                               watched: unverifiable
+--- exit 0 ---
+
+### TestDiscoverUnmanagedUncertainCoverage
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [],
+  "unmanaged": [],
+  "unmanaged_unknown": [
+    {
+      "project": "conflict",
+      "containers": [
+        "one",
+        "two"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": [
+        "ROOT/srv/watched/compose.yaml"
+      ],
+      "reason": "watched: conflicting"
+    }
+  ],
+  "unmanaged_complete": true
+}
+--- exit 0 ---
+
+### TestDiscoverUnmanagedEmptyAndFailedDocker
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [],
+  "unmanaged": [],
+  "unmanaged_unknown": [],
+  "unmanaged_complete": true
+}
+--- exit 0 ---
+
+### TestDiscoverUnmanagedEmptyAndFailedDocker
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [],
+  "unmanaged": [
+    {
+      "project": "labels-only",
+      "containers": [
+        "labels-only"
+      ],
+      "enrolled_stack": "",
+      "compose_paths": []
+    }
+  ],
+  "unmanaged_unknown": [],
+  "unmanaged_complete": true
+}
+--- exit 0 ---
+
+### TestDiscoverUnmanagedEmptyAndFailedDocker
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "available",
+      "path": "ROOT/srv/available/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ],
+  "unmanaged": [],
+  "unmanaged_unknown": [],
+  "unmanaged_complete": false,
+  "unmanaged_error": "local: docker returned 500 Internal Server Error: {\"message\":\"daemon is unhappy\"}"
+}
+--- stderr ---
+error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 1 ---
+
+### TestDiscoverUnmanagedEmptyAndFailedDocker
+$ stackmon discover --unmanaged
+--- stdout ---
+NAME       STATE      PATH
+available  available  ROOT/srv/available/compose.yaml
+
+Unmanaged Compose Projects
+[]
+
+Projects with uncertain enrollment coverage
+[]
+Unmanaged enumeration incomplete: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- stderr ---
+error: local: docker returned 500 Internal Server Error: {"message":"daemon is unhappy"}
+--- exit 1 ---
+
+### TestDiscoverUnmanagedEmptyAndFailedDocker
+$ stackmon discover --unmanaged --json
+--- stdout ---
+{
+  "stacks": [
+    {
+      "name": "available",
+      "path": "ROOT/srv/available/compose.yaml",
+      "enrolled": false,
+      "state": "available"
+    }
+  ],
+  "unmanaged": [],
+  "unmanaged_unknown": [],
+  "unmanaged_complete": false,
+  "unmanaged_error": "Docker is unavailable"
+}
+--- stderr ---
+error: Docker is unavailable
+--- exit 1 ---
+
 ### TestWhatsNewComparesTheRunningVersionWithTheLatest
 $ stackmon whats-new
 --- stdout ---

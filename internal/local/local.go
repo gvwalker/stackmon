@@ -204,6 +204,47 @@ func (c *Client) Containers(ctx context.Context) ([]Container, error) {
 	return out, nil
 }
 
+// ProjectContainers lists running Compose containers and their identity labels.
+// Discovery needs no image digests or runtime health inspections.
+func (c *Client) ProjectContainers(ctx context.Context) ([]Container, error) {
+	raw, err := c.listContainers(ctx, false)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Container, 0, len(raw))
+	for _, r := range raw {
+		project, service := r.Labels[labelProject], r.Labels[labelService]
+		if project == "" || service == "" {
+			continue
+		}
+		out = append(out, Container{
+			ID: r.ID, Name: containerName(r.Names, r.ID), Project: project,
+			ProjectWorkingDir:  r.Labels[labelProjectWorkingDir],
+			ProjectConfigFiles: r.Labels[labelProjectConfigFiles], Service: service,
+			State: r.State, OneOff: strings.EqualFold(r.Labels[labelOneOff], "true"),
+		})
+	}
+	// Stable Project and label ordering keeps discovery repeatable even when
+	// containers disagree about paths.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Project != b.Project {
+			return a.Project < b.Project
+		}
+		if a.ProjectWorkingDir != b.ProjectWorkingDir {
+			return a.ProjectWorkingDir < b.ProjectWorkingDir
+		}
+		if a.ProjectConfigFiles != b.ProjectConfigFiles {
+			return a.ProjectConfigFiles < b.ProjectConfigFiles
+		}
+		if a.Name != b.Name {
+			return a.Name < b.Name
+		}
+		return a.ID < b.ID
+	})
+	return out, nil
+}
+
 // AllContainers lists every Compose container (running and stopped) and
 // inspects each non-one-off container's runtime status and healthcheck state.
 // Image RepoDigests are not fetched, because runtime health is independent of

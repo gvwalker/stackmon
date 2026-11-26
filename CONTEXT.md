@@ -14,6 +14,10 @@ _Avoid_: Project (reserve for the Docker Compose project name, which is not alwa
 The Docker Compose project name a running container belongs to, which Compose derives from the directory, from `name:` in the compose file, or from `docker compose -p`. It is not the stack's name and never is inferred from it.
 _Avoid_: Stack, display name.
 
+**Unmanaged Project**:
+A running **Project** confirmed to have no enrolled **Stack** covering it; an intentionally unmonitored workload is a valid state. Uncertain enrollment coverage is a separate observation, not an unmanaged verdict or a runtime fault.
+_Avoid_: Broken stack, unenrolled Stack, unhealthy Project.
+
 **Project Binding**:
 An enrolled stack's explicit association with a Project, set by `enroll --project`, `enroll --running`, or `inventory set-project`. A binding overrides matching and is never silently replaced; without one, a Project is matched from the paths Compose recorded, and an ambiguous or unverifiable match yields an unknown identity rather than a guess.
 _Avoid_: Name, default project, mapping.
